@@ -15,7 +15,7 @@ set(ZLIB_VERSION        "1.2.8")
 # Platform-dependent versions.
 if (NOT WIN32)
   set(GLOG_VERSION      "0.3.3")
-  set(PROTOBUF_VERSION  "2.6.1")
+  set(PROTOBUF_VERSION  "3.3.1")
   set(ZOOKEEPER_VERSION "3.4.8")
 else (NOT WIN32)
   # TODO(hausdorff): (MESOS-3394) Upgrade Windows to use glog v0.3.5 when they
