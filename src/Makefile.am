@@ -231,6 +231,8 @@ APPC_SPEC_PROTO = $(top_srcdir)/include/mesos/appc/spec.proto
 AUTHENTICATION_PROTO = $(top_srcdir)/include/mesos/authentication/authentication.proto
 AUTHORIZATION_PROTO = $(top_srcdir)/include/mesos/authorizer/authorizer.proto
 CONTAINERIZER_PROTO = $(top_srcdir)/include/mesos/slave/containerizer.proto
+CSI_MESSAGES_PROTO = $(top_srcdir)/include/mesos/csi/messages.proto
+CSI_SERVICES_PROTO = $(top_srcdir)/include/mesos/csi/services.proto
 DOCKER_SPEC_PROTO = $(top_srcdir)/include/mesos/docker/spec.proto
 DOCKER_V1_PROTO = $(top_srcdir)/include/mesos/docker/v1.proto
 DOCKER_V2_PROTO = $(top_srcdir)/include/mesos/docker/v2.proto
@@ -274,6 +276,10 @@ CXX_PROTOS =								\
   ../include/mesos/authorizer/acls.pb.h					\
   ../include/mesos/authorizer/authorizer.pb.cc				\
   ../include/mesos/authorizer/authorizer.pb.h				\
+  ../include/mesos/csi/messages.pb.h                                    \
+  ../include/mesos/csi/messages.pb.cc                                   \
+  ../include/mesos/csi/services.pb.h                                    \
+  ../include/mesos/csi/services.pb.cc                                   \
   ../include/mesos/docker/spec.pb.cc					\
   ../include/mesos/docker/spec.pb.h					\
   ../include/mesos/docker/v1.pb.cc					\
@@ -1434,6 +1440,8 @@ libmesos_la_SOURCES =							\
   $(AUTHENTICATION_PROTO)						\
   $(AUTHORIZATION_PROTO)						\
   $(CONTAINERIZER_PROTO)						\
+  $(CSI_MESSAGES_PROTO)                                                 \
+  $(CSI_SERVICES_PROTO)                                                 \
   $(EXECUTOR_PROTO)							\
   $(DOCKER_SPEC_PROTO)							\
   $(DOCKER_V1_PROTO)							\

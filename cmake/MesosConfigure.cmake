@@ -179,6 +179,9 @@ set(MESOS_LIBS_TARGET mesos-${MESOS_PACKAGE_VERSION}
 set(MESOS_PROTOBUF_TARGET mesos-protobufs
     CACHE STRING "Library of protobuf definitions used by Mesos")
 
+set(MESOS_GRPC_TARGET mesos-grpcs
+    CACHE STRING "Library of gRPC service definitions used by Mesos")
+
 # MESOS SCRIPT CONFIGURATION.
 #############################
 if (NOT WIN32)

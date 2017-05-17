@@ -68,6 +68,40 @@ function(PROTOC_TO_INCLUDE_DIR BASE_NAME BASE_DIR_STRUCTURE)
     WORKING_DIRECTORY ${MESOS_BIN})
 endfunction()
 
+# GRPC_TO_INCLUDE_DIR is a similar to `PROTO_TO_INCLUDE_DIR`, except that it
+# uses the gRPC plugin to comiple the services defined in the .proto files into
+# `.grpc.pb.h` and `.grpc.pb.cc` files that contain the generated service
+# classes.
+# NOTE: To compile the messages defined in the .proto files into the ordinary
+# `.pb.h` and `.ph.cc` files, PROTO_TO_INCLUDE_DIR still needs to be called.
+function(GRPC_TO_INCLUDE_DIR BASE_NAME BASE_DIR_STRUCTURE)
+
+  set(TO_INCLUDE_DIR
+    -I${MESOS_PUBLIC_INCLUDE_DIR}
+    -I${MESOS_SRC_DIR}
+    --grpc_out=${MESOS_BIN_INCLUDE_DIR})
+
+  # Names of variables we will be publicly exporting.
+  set(CC_VAR ${BASE_NAME}_GRPC_CC) # e.g., MESOS_GRPC_CC
+  set(H_VAR  ${BASE_NAME}_GRPC_H)  # e.g., MESOS_GRPC_H
+
+  # Fully qualified paths for the output C files.
+  set(PROTO ${MESOS_PUBLIC_INCLUDE_DIR}/${BASE_DIR_STRUCTURE}.proto)
+  set(CC    ${MESOS_BIN_INCLUDE_DIR}/${BASE_DIR_STRUCTURE}.grpc.pb.cc)
+  set(H     ${MESOS_BIN_INCLUDE_DIR}/${BASE_DIR_STRUCTURE}.grpc.pb.h)
+
+  # Export variables holding the target filenames.
+  set(${CC_VAR} ${CC} PARENT_SCOPE) # e.g., mesos/mesos.grpc.pb.cc
+  set(${H_VAR}  ${H}  PARENT_SCOPE) # e.g., mesos/mesos.grpc.pb.h
+
+  # Compile the .proto file.
+  ADD_CUSTOM_COMMAND(
+    OUTPUT ${CC} ${H}
+    COMMAND ${PROTOC} --plugin=protoc-gen-grpc=${GRPC_PLUGIN} ${TO_INCLUDE_DIR} ${PROTO}
+    DEPENDS make_bin_include_dir ${PROTO}
+    WORKING_DIRECTORY ${MESOS_BIN})
+endfunction()
+
 # PROTO_TO_SRC_DIR is similar to `PROTO_TO_INCLUDE_DIR`, except it acts on the
 # Mesos `src/` directory instead of the public-facing `include/` directory (see
 # documentation for `PROTO_TO_INCLUDE_DIR` for details).

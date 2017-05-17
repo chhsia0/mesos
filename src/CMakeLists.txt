@@ -26,6 +26,8 @@ PROTOC_TO_INCLUDE_DIR(APPC_SPEC             mesos/appc/spec)
 PROTOC_TO_INCLUDE_DIR(AUTHENTICATION        mesos/authentication/authentication)
 PROTOC_TO_INCLUDE_DIR(AUTHORIZATION         mesos/authorizer/authorizer)
 PROTOC_TO_INCLUDE_DIR(CONTAINERIZER         mesos/slave/containerizer)
+PROTOC_TO_INCLUDE_DIR(CSI_MESSAGES          mesos/csi/messages)
+PROTOC_TO_INCLUDE_DIR(CSI_SERVICES          mesos/csi/services)
 PROTOC_TO_INCLUDE_DIR(DOCKER_SPEC           mesos/docker/spec)
 PROTOC_TO_INCLUDE_DIR(DOCKER_V1             mesos/docker/v1)
 PROTOC_TO_INCLUDE_DIR(DOCKER_V2             mesos/docker/v2)
@@ -53,6 +55,8 @@ PROTOC_TO_INCLUDE_DIR(V1_QUOTA              mesos/v1/quota/quota)
 PROTOC_TO_INCLUDE_DIR(V1_RESOURCE_PROVIDER  mesos/v1/resource_provider/resource_provider)
 PROTOC_TO_INCLUDE_DIR(V1_SCHEDULER          mesos/v1/scheduler/scheduler)
 
+GRPC_TO_INCLUDE_DIR(CSI_SERVICES  mesos/csi/services)
+
 PROTOC_TO_SRC_DIR(INTERNAL_FLAGS                messages/flags)
 PROTOC_TO_SRC_DIR(INTERNAL_LOG                  messages/log)
 PROTOC_TO_SRC_DIR(INTERNAL_MESSAGES             messages/messages)
@@ -70,6 +74,8 @@ set(PUBLIC_PROTOBUF_SRC
   ${AUTHENTICATION_PROTO_CC}
   ${AUTHORIZATION_PROTO_CC}
   ${CONTAINERIZER_PROTO_CC}
+  ${CSI_MESSAGES_PROTO_CC}
+  ${CSI_SERVICES_PROTO_CC}
   ${DOCKER_SPEC_PROTO_CC}
   ${DOCKER_V1_PROTO_CC}
   ${DOCKER_V2_PROTO_CC}
@@ -96,6 +102,10 @@ set(PUBLIC_PROTOBUF_SRC
   ${V1_QUOTA_PROTO_CC}
   ${V1_RESOURCE_PROVIDER_PROTO_CC}
   ${V1_SCHEDULER_PROTO_CC}
+  )
+
+set(PUBLIC_GRPC_SRC
+  ${CSI_SERVICES_GRPC_CC}
   )
 
 set(INTERNAL_PROTOBUF_SRC
@@ -135,6 +145,23 @@ if (WIN32)
     ${MESOS_PROTOBUF_TARGET}
     PROPERTIES COMPILE_FLAGS "/w")
 endif (WIN32)
+
+
+# BUILD GRPC SERVICES.
+######################
+include_directories(${GRPC_INCLUDE_DIR})
+
+link_directories(${GRPC_LIB_DIR})
+
+add_library(
+  ${MESOS_GRPC_TARGET}
+  ${MESOS_DEFAULT_LIBRARY_LINKAGE}
+  ${PUBLIC_GRPC_SRC}
+  )
+
+add_dependencies(${MESOS_GRPC_TARGET} ${GRPC_TARGET})
+
+target_link_libraries(${MESOS_GRPC_TARGET} ${GRPC_LFLAG})
 
 
 # Configure Mesos files.
@@ -575,13 +602,19 @@ endif (ENABLE_PRECOMPILED_HEADERS)
 add_dependencies(${MESOS_TARGET} ${MESOS_LIBS_TARGET})
 add_dependencies(
   ${MESOS_LIBS_TARGET}
+  ${MESOS_GRPC_TARGET}
   ${MESOS_PROTOBUF_TARGET}
   ${AGENT_DEPENDENCIES}
   )
 
 # ADD LINKER FLAGS (generates, e.g., -lglog on Linux).
 ######################################################
-target_link_libraries(${MESOS_LIBS_TARGET} ${MESOS_PROTOBUF_TARGET} ${AGENT_LIBS})
+target_link_libraries(
+  ${MESOS_LIBS_TARGET}
+  ${MESOS_GRPC_TARGET}
+  ${MESOS_PROTOBUF_TARGET}
+  ${AGENT_LIBS}
+  )
 
 # BUILD THE MESOS EXECUTABLES.
 ##############################
