@@ -203,7 +203,7 @@ $(GLOG)-build-stamp: $(GLOG)-stamp
 ALL_LOCAL += $(LIB_GLOG)
 endif
 
-if HAS_GPERFTOOLS
+if WITH_BUNDLED_GPERFTOOLS
 LIB_GPERFTOOLS = $(GPERFTOOLS)/libprofiler.la
 
 $(LIB_GPERFTOOLS): $(GPERFTOOLS)-build-stamp

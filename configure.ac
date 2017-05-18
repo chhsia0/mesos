@@ -308,6 +308,13 @@ AC_ARG_WITH([gmock],
                             location prefixed by the given path]),
             [without_bundled_gmock=yes], [])
 
+AC_ARG_WITH([gperftools],
+            AS_HELP_STRING([--with-gperftools@<:@=DIR@:>@],
+                           [excludes building and using the bundled gperftools
+                            package in lieu of an installed version at a
+                            location prefixed by the given path]),
+            [without_bundled_gperftools=yes], [])
+
 AC_ARG_WITH([http-parser],
             AS_HELP_STRING([--with-http-parser@<:@=DIR@:>@],
                            [excludes building and using the bundled http-parser
@@ -617,7 +624,6 @@ AM_CONDITIONAL([OS_LINUX], [test "x$OS_NAME" = "xlinux"])
 AM_CONDITIONAL([OS_FREEBSD], [test "x$OS_NAME" = "xfreebsd"])
 
 AM_CONDITIONAL([GIT_REPO], [test -d ${srcdir}"/.git"])
-AM_CONDITIONAL([HAS_GPERFTOOLS], [test "x$enable_perftools" = "xyes"])
 
 AM_CONDITIONAL([INSTALL_MODULE_DEPENDENCIES],
                [test x"$enable_install_module_dependencies" = "xyes"])
@@ -907,6 +913,53 @@ AM_CONDITIONAL([WITH_BUNDLED_GMOCK], [test "x$with_bundled_gmock" = "xyes"])
 AM_CONDITIONAL([LINKGTEST], [test "check_gtest" = "xyes"])
 AC_SUBST([GMOCKSRC])
 AC_SUBST([GTESTSRC])
+
+
+# Check if gperftools prefix path was supplied and if so, add it to
+# CPPFLGS while extending it by /include and to LDFLAGS while extending
+# it by /lib.
+if test -n "`echo $with_gperftools`"; then
+  LDFLAGS="$LDFLAGS -L${with_gperftools}/include"
+  LDFLAGS="$LDFLAGS -L${with_gperftools}/lib"
+fi
+
+# Check if user has asked us to use a preinstalled gperftools, or if
+# they asked us to ignore all bundled libraries while compiling and
+# linking.
+if test "x$without_bundled_gperftools" = "xyes" || \
+   test "x$enable_bundled" != "xyes"; then
+  # Check if headers and library were located.
+  AC_CHECK_HEADERS([gperftools/profiler.h],
+                   [AC_LINK_IFELSE([AC_LANG_PROGRAM(
+                        [#include <gperftools/profiler.h>],
+                        [ ProfilerStart("/dev/null"); ProfilerStop(); ])],
+                    [TEST_LIBS="$TEST_LIBS -lprofiler"] [found_gperftools=yes],
+                    [AC_MSG_WARN([gperftools is not installed.])])])
+
+  if test "x$found_gperftools" = "xyes"; then
+    with_bundled_gperftools=no
+  else
+    AC_MSG_ERROR([cannot find gperftools
+-------------------------------------------------------------------
+You have requested the use of a non-bundled gperftools but no
+suitable gperftools could be found.
+
+You may want specify the location of gperftools by providing a
+prefix path via --with-gperftools=DIR, or check that the path you
+provided is correct if you're already doing this.
+-------------------------------------------------------------------
+])
+  fi
+else
+  with_bundled_gperftools=yes
+fi
+
+# TODO(chhsiao): Keep HAS_GPERFTOOLS for libprocess compilation for
+# now. If there is no compilation flag depending on this option, we can
+# remove it safely.
+AM_CONDITIONAL([HAS_GPERFTOOLS], [test "x$enable_perftools" = "xyes"])
+AM_CONDITIONAL([WITH_BUNDLED_GPERFTOOLS],
+               [test "x$with_bundled_gperftools" = "xyes"])
 
 
 if test -n "`echo $with_http_parser`"; then
