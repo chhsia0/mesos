@@ -20,6 +20,7 @@ set(STOUT ${MESOS_3RDPARTY_SRC}/stout)
 
 EXTERNAL("boost"       ${BOOST_VERSION}       "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("elfio"       ${ELFIO_VERSION}       "${MESOS_3RDPARTY_BIN}")
+EXTERNAL("gperftools"  ${GPERFTOOLS_VERSION}  "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("picojson"    ${PICOJSON_VERSION}    "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("http_parser" ${HTTP_PARSER_VERSION} "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("libev"       ${LIBEV_VERSION}       "${MESOS_3RDPARTY_BIN}")
@@ -44,10 +45,11 @@ elseif (WIN32)
 endif (NOT WIN32)
 
 # Intermediate convenience variables for oddly-structured directories.
-set(GLOG_LIB_ROOT     ${GLOG_ROOT}-lib/lib)
-set(PROTOBUF_LIB_ROOT ${PROTOBUF_ROOT}-lib/lib)
-set(LIBEV_LIB_ROOT    ${LIBEV_ROOT}-lib/lib)
-set(LIBEVENT_LIB_ROOT ${LIBEVENT_ROOT}-lib/lib)
+set(GLOG_LIB_ROOT       ${GLOG_ROOT}-lib/lib)
+set(GPERFTOOLS_LIB_ROOT ${GPERFTOOLS_ROOT}-lib/lib)
+set(PROTOBUF_LIB_ROOT   ${PROTOBUF_ROOT}-lib/lib)
+set(LIBEV_LIB_ROOT      ${LIBEV_ROOT}-lib/lib)
+set(LIBEVENT_LIB_ROOT   ${LIBEVENT_ROOT}-lib/lib)
 
 # Convenience variables for include directories of third-party dependencies.
 set(PROCESS_INCLUDE_DIR     ${MESOS_3RDPARTY_SRC}/libprocess/include)
@@ -55,7 +57,7 @@ set(STOUT_INCLUDE_DIR       ${STOUT}/include)
 
 set(BOOST_INCLUDE_DIR       ${BOOST_ROOT})
 set(ELFIO_INCLUDE_DIR       ${ELFIO_ROOT})
-set(GPERFTOOLS_INCLUDE_DIR  ${GPERFTOOLS}/src)
+set(GPERFTOOLS_INCLUDE_DIR  ${GPERFTOOLS_ROOT}/src)
 set(HTTP_PARSER_INCLUDE_DIR ${HTTP_PARSER_ROOT})
 set(LIBEV_INCLUDE_DIR       ${LIBEV_ROOT})
 set(NVML_INCLUDE_DIR        ${NVML_ROOT})
