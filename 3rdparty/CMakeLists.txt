@@ -33,6 +33,7 @@ endif (REBUNDLED)
 set(BOOST_URL       ${FETCH_URL}/boost-${BOOST_VERSION}.tar.gz)
 set(ELFIO_URL       ${FETCH_URL}/elfio-${ELFIO_VERSION}.tar.gz)
 set(GLOG_URL        ${FETCH_URL}/glog-${GLOG_VERSION}.tar.gz)
+set(GPERFTOOLS_URL  ${FETCH_URL}/gperftools-${GPERFTOOLS_VERSION}.tar.gz)
 set(HTTP_PARSER_URL ${FETCH_URL}/http-parser-${HTTP_PARSER_VERSION}.tar.gz)
 set(PICOJSON_URL    ${FETCH_URL}/picojson-${PICOJSON_VERSION}.tar.gz)
 set(NVML_URL        ${FETCH_URL}/nvml-${NVML_VERSION}.tar.gz)
@@ -85,6 +86,10 @@ if (NOT WIN32)
   # Patch glog to deal with a problem that appears when compiling on clang
   # under the C++11 standard. cf. MESOS-860, MESOS-966.
   PATCH_CMD(${MESOS_3RDPARTY_SRC}/glog-${GLOG_VERSION}.patch GLOG_PATCH_CMD)
+
+  set(GPERFTOOLS_CONFIG_CMD  ${GPERFTOOLS_ROOT}/configure --prefix=${GPERFTOOLS_LIB_ROOT} --disable-shared --with-pic)
+  set(GPERFTOOLS_BUILD_CMD   make)
+  set(GPERFTOOLS_INSTALL_CMD make install)
 
   # NOTE: `libev` is "installed" into a lib directory, see "NOTE: (fix for
   # MESOS-3250)" comment above for explanation.
@@ -184,6 +189,15 @@ ExternalProject_Add(
   INSTALL_COMMAND   ${GLOG_INSTALL_CMD}
   URL               ${GLOG_URL}
   DOWNLOAD_NAME     glog-${GLOG_VERSION}.tar.gz
+  )
+
+ExternalProject_Add(
+  ${GPERFTOOLS_TARGET}
+  PREFIX            ${GPERFTOOLS_CMAKE_ROOT}
+  CONFIGURE_COMMAND ${GPERFTOOLS_CONFIG_CMD}
+  BUILD_COMMAND     ${GPERFTOOLS_BUILD_CMD}
+  INSTALL_COMMAND   ${GPERFTOOLS_INSTALL_CMD}
+  URL               ${GPERFTOOLS_URL}
   )
 
 ExternalProject_Add(
