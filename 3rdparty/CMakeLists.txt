@@ -43,6 +43,7 @@ set(BOOST_URL           ${FETCH_URL}/boost-${BOOST_VERSION}.tar.gz)
 set(CONCURRENTQUEUE_URL ${FETCH_URL}/concurrentqueue-${CONCURRENTQUEUE_VERSION}.tar.gz)
 set(ELFIO_URL           ${FETCH_URL}/elfio-${ELFIO_VERSION}.tar.gz)
 set(GLOG_URL            ${FETCH_URL}/glog-${GLOG_VERSION}.tar.gz)
+set(GRPC_URL            ${FETCH_URL}/grpc-${GRPC_VERSION}.tar.gz)
 set(HTTP_PARSER_URL     ${FETCH_URL}/http-parser-${HTTP_PARSER_VERSION}.tar.gz)
 set(PICOJSON_URL        ${FETCH_URL}/picojson-${PICOJSON_VERSION}.tar.gz)
 set(NVML_URL            ${FETCH_URL}/nvml-${NVML_VERSION}.tar.gz)
@@ -433,6 +434,45 @@ else ()
     IMPORTED_LOCATION ${PROTOBUF_ROOT}-build/protoc)
 endif ()
 make_include(protobuf)
+
+# TODO(chhsiao): Windows support for gRPC.
+if (NOT WIN32)
+EXTERNAL("grpc" ${GRPC_VERSION} "${MESOS_3RDPARTY_BIN}")
+add_library(grpc ${LIBRARY_LINKAGE} IMPORTED GLOBAL)
+add_dependencies(grpc ${GRPC_TARGET})
+add_executable(grpc_cpp_plugin IMPORTED GLOBAL)
+add_dependencies(grpc_cpp_plugin ${GRPC_TARGET})
+
+# https://github.com/grpc/grpc/pull/11565
+PATCH_CMD(${MESOS_3RDPARTY_SRC}/grpc-${GRPC_VERSION}.patch GRPC_PATCH_CMD)
+
+get_target_property(GRPC_PROTOBUF_LIBRARIES protobuf IMPORTED_LOCATION)
+set(GRPC_PROTOC_LIBRARIES ${PROTOBUF_ROOT}-build/${CMAKE_FIND_LIBRARY_PREFIXES}protoc${PROTOBUF_SUFFIX}${LIBRARY_SUFFIX})
+get_target_property(GRPC_PROTOBUF_PROTOC protoc IMPORTED_LOCATION)
+# NOTE: To support systems using openssl 1.0.1 or older, we disable the
+# ALPN support wen compiling gRPC.
+#
+# NOTE: We set `gRPC_PROTOBUF_PROVIDER` to neither "package" nor
+# "module" and manually set up variables required by gRPC in order to
+# use the bundled protobuf library.
+ExternalProject_Add(
+  ${GRPC_TARGET}
+  DEPENDS           protobuf protoc
+  PREFIX            ${GRPC_CMAKE_ROOT}
+  PATCH_COMMAND     ${GRPC_PATCH_CMD}
+  CMAKE_ARGS        ${CMAKE_FORWARD_ARGS};-DCMAKE_C_FLAGS=-DTSI_OPENSSL_ALPN_SUPPORT=0;-DgRPC_ZLIB_PROVIDER=package;-DgRPC_SSL_PROVIDER=package;-DgRPC_PROTOBUF_PROVIDER=;-DPROTOBUF_ROOT_DIR=${PROTOBUF_ROOT};-DPROTOBUF_WELLKNOWN_IMPORT_DIR=${PROTOBUF_ROOT}/src;-D_gRPC_PROTOBUF_LIBRARIES=${GRPC_PROTOBUF_LIBRARIES};-D_gRPC_PROTOBUF_PROTOC_LIBRARIES=${GRPC_PROTOC_LIBRARIES};-D_gRPC_PROTOBUF_PROTOC=${GRPC_PROTOBUF_PROTOC}
+  INSTALL_COMMAND   ${CMAKE_NOOP}
+  URL               ${GRPC_URL}
+  URL_HASH          ${GRPC_HASH}
+  )
+#set_target_properties(grpc PROPERTIES
+#  INTERFACE_INCLUDE_DIRECTORIES ${GRPC_ROOT}/include)
+#set_target_properties(grpc PROPERTIES
+#  IMPORTED_LOCATION ${GRPC_ROOT}-build/${CMAKE_FIND_LIBRARY_PREFIXES}grpc${GRPC_SUFFIX}${LIBRARY_SUFFIX})
+#set_target_properties(grpc_cpp_plugin PROPERTIES
+#  IMPORTED_LOCATION ${GRPC_ROOT}-build/grpc_cpp_plugin)
+make_include(grpc)
+endif ()
 
 # BUILDING THE STOUT LIBRARY AND ITS TESTS.
 #
