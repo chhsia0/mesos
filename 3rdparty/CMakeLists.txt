@@ -368,6 +368,7 @@ add_subdirectory(libprocess)
 #
 # Downloads, configures, and compiles the third-party libraries for the mesos.
 ###################################################
+set(GRPC_URL      ${FETCH_URL}/grpc-${GRPC_VERSION}.tar.gz)
 set(LEVELDB_URL   ${FETCH_URL}/leveldb-${LEVELDB_VERSION}.tar.gz)
 # NOTE: The Windows version of ZooKeeper is patched and only available in the
 # 3rdparty repo, not the local repo.
@@ -382,6 +383,25 @@ endif (NOT WIN32)
 # party libraries at compile time, using the ExternalProject_Add macro.
 ##############################################################################
 if (NOT WIN32)
+  PATCH_CMD(
+    ${MESOS_3RDPARTY_SRC}/grpc-${GRPC_VERSION}.patch
+    GRPC_PATCH_CMD)
+
+  # NOTE: We build gRPC with its own third-party library bundles
+  # statically linked, but CMake would detect these dependencies and
+  # report errors for not exporting them, so we use `test -f Makefile`
+  # here to ignore such errors.
+  ExternalProject_Add(
+    ${GRPC_TARGET}
+    DEPENDS           ${PROTOBUF_TARGET}
+    PREFIX            ${GRPC_CMAKE_ROOT}
+    PATCH_COMMAND     ${GRPC_PATCH_CMD}
+    CONFIGURE_COMMAND cmake ${GRPC_ROOT} -G ${CMAKE_GENERATOR} -DBUILD_SHARED_LIBS=NO -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fPIC -DCMAKE_PREFIX_PATH=${PROTOBUF_LIB_ROOT} -DCMAKE_INSTALL_PREFIX=${GRPC_LIB_ROOT} -DgRPC_ZLIB_PROVIDER=package -DgRPC_SSL_PROVIDER=package -DgRPC_PROTOBUF_PROVIDER=package || test -f Makefile
+    BUILD_COMMAND     make
+    INSTALL_COMMAND   make install
+    URL               ${GRPC_URL}
+    )
+
   # NOTE: `ExternalProject_Add` is used separately because older versions
   # of CMake used on Linux do not understand the `SOURCE_SUBDIR` command.
   PATCH_CMD(

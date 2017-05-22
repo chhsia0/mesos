@@ -1,0 +1,46 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 680ee8b829..2d77588223 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1177,7 +1177,6 @@ target_link_libraries(grpc
+   ${_gRPC_BASELIB_LIBRARIES}
+   ${_gRPC_SSL_LIBRARIES}
+   ${_gRPC_ZLIB_LIBRARIES}
+-  ${_gRPC_CARES_LIBRARIES}
+   ${_gRPC_ALLTARGETS_LIBRARIES}
+   gpr
+ )
+@@ -13836,3 +13835,33 @@ foreach(_config gRPCConfig gRPCConfigVersion)
+     DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
+   )
+ endforeach()
++
++function(embed_cares)
++  if (NOT TARGET cares)
++    message(SEND_ERROR "Error: LINK_CARES() called but gRPC_CARES_PROVIDER is not \"module\"")
++    return()
++  endif()
++
++  if (NOT ARGN)
++    message(SEND_ERROR "Error: LINK_CARES() called without any target")
++    return()
++  endif()
++
++  foreach(_t ${ARGN})
++    add_dependencies(${_t} cares)
++    add_custom_command(TARGET ${_t} POST_BUILD
++      COMMAND echo \"create lib${_t}.a\\naddlib lib${_t}.a\\naddlib third_party/cares/libcares.a\\ndelete acountry.c.o,adig.c.o,ahost.c.o\\nsave\\nend\" | ar -M
++    )
++  endforeach()
++endfunction()
++
++if (TARGET cares)
++  embed_cares(grpc grpc_cronet grpc_unsecure)
++endif()
++
++if (gRPC_INSTALL)
++  install(EXPORT gRPCTargets
++    DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
++    NAMESPACE gRPC::
++  )
++endif()

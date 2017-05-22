@@ -19,36 +19,51 @@
 set(MESOS_3RDPARTY_SRC ${CMAKE_SOURCE_DIR}/3rdparty)
 set(MESOS_3RDPARTY_BIN ${CMAKE_BINARY_DIR}/3rdparty)
 
+EXTERNAL("grpc"      ${GRPC_VERSION}      "${MESOS_3RDPARTY_BIN}")
+EXTERNAL("zookeeper" ${ZOOKEEPER_VERSION} "${MESOS_3RDPARTY_BIN}")
+
 if (NOT WIN32)
   # LevelDB does not build on Windows.
   EXTERNAL("leveldb" ${LEVELDB_VERSION} "${MESOS_3RDPARTY_BIN}")
 endif (NOT WIN32)
 
-EXTERNAL("zookeeper" ${ZOOKEEPER_VERSION} "${MESOS_3RDPARTY_BIN}")
-
 # Intermediate convenience variables for oddly-structured directories.
+set(GRPC_LIB_ROOT    ${GRPC_ROOT}-lib/lib)
 set(ZOOKEEPER_C_ROOT ${ZOOKEEPER_ROOT}/src/c)
 set(ZOOKEEPER_LIB    ${ZOOKEEPER_ROOT}/src/c)
 
 # Convenience variables for include directories of third-party dependencies.
-set(LEVELDB_INCLUDE_DIR ${LEVELDB_ROOT}/include)
+set(GRPC_INCLUDE_DIR         ${GRPC_LIB_ROOT}/include)
+set(LEVELDB_INCLUDE_DIR      ${LEVELDB_ROOT}/include)
 set(ZOOKEEPER_INCLUDE_GENDIR ${ZOOKEEPER_C_ROOT}/generated)
-set(ZOOKEEPER_INCLUDE_DIR ${ZOOKEEPER_C_ROOT}/include)
+set(ZOOKEEPER_INCLUDE_DIR    ${ZOOKEEPER_C_ROOT}/include)
 
 # Convenience variables for `lib` directories of built third-party dependencies.
 if (NOT WIN32)
+  set(GRPC_LIB_DIR      ${GRPC_LIB_ROOT}/lib)
   set(ZOOKEEPER_LIB_DIR ${ZOOKEEPER_LIB})
 else (NOT WIN32)
+  set(GRPC_LIB_DIR      ${GRPC_LIB_ROOT}-build/${CMAKE_BUILD_TYPE})
   set(ZOOKEEPER_LIB_DIR ${ZOOKEEPER_ROOT}-build/${CMAKE_BUILD_TYPE})
 endif (NOT WIN32)
 
 # Convenience variables for "lflags", the symbols we pass to CMake to generate
 # things like `-L/path/to/glog` or `-lglog`.
 if (NOT WIN32)
+  set(GRPC_LFLAG      grpc++ grpc gpr crypto ssl z -pthread)
   set(LEVELDB_LFLAG   ${LEVELDB_ROOT}/out-static/libleveldb.a)
   set(ZOOKEEPER_LFLAG ${ZOOKEEPER_LIB}/lib/libzookeeper_mt.a)
 else (NOT WIN32)
+  set(GRPC_LFLAG      grpc++)
   set(ZOOKEEPER_LFLAG zookeeper hashtable)
+endif (NOT WIN32)
+
+# Convenience variable for `grpc_cpp_plugin`, the gRPC plugin for the Protobuf
+# compiler.
+if (NOT WIN32)
+  set(GRPC_PLUGIN ${GRPC_LIB_ROOT}/bin/grpc_cpp_plugin)
+else (NOT WIN32)
+  set(GRPC_PLUGIN ${GRPC_ROOT}-build/${CMAKE_BUILD_TYPE}/grpc_cpp_plugin.exe)
 endif (NOT WIN32)
 
 # Configure Windows use of the GNU patch utility;
