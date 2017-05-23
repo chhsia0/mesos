@@ -315,6 +315,13 @@ AC_ARG_WITH([gperftools],
                             location prefixed by the given path]),
             [without_bundled_gperftools=yes], [])
 
+AC_ARG_WITH([grpc],
+            AS_HELP_STRING([--with-grpc@<:@=DIR@:>@],
+                           [excludes building and uses the bundled grpc
+                            package in lieu of an installed version at a
+                            location prefixed by the given path]),
+            [without_bundled_grpc=yes], [])
+
 AC_ARG_WITH([http-parser],
             AS_HELP_STRING([--with-http-parser@<:@=DIR@:>@],
                            [excludes building and using the bundled http-parser
@@ -921,6 +928,8 @@ AC_SUBST([GTESTSRC])
 if test -n "`echo $with_gperftools`"; then
   LDFLAGS="$LDFLAGS -L${with_gperftools}/include"
   LDFLAGS="$LDFLAGS -L${with_gperftools}/lib"
+
+  GPERFTOOLS_INCLUDE_DIR="${with_gperftools}/include"
 fi
 
 # Check if user has asked us to use a preinstalled gperftools, or if
@@ -960,6 +969,49 @@ fi
 AM_CONDITIONAL([HAS_GPERFTOOLS], [test "x$enable_perftools" = "xyes"])
 AM_CONDITIONAL([WITH_BUNDLED_GPERFTOOLS],
                [test "x$with_bundled_gperftools" = "xyes"])
+
+AC_SUBST([GPERFTOOLS_INCLUDE_DIR])
+
+
+# Check if grpc prefix path was supplied and if so, add it to CPPFLGS
+# while extending it by /include and to LDFLAGS while extending it by
+# /lib.
+if test -n "`echo $with_grpc`"; then
+  LDFLAGS="$LDFLAGS -L${with_grpc}/include"
+  LDFLAGS="$LDFLAGS -L${with_grpc}/lib"
+fi
+
+# Check if user has asked us to use a preinstalled grpc, or if they
+# asked us to ignore all bundled libraries while compiling and linking.
+if test "x$without_bundled_grpc" = "xyes" || \
+   test "x$enable_bundled" != "xyes"; then
+  # Check if headers and library were located.
+  AC_CHECK_HEADERS([grpc++/grpc++.h],
+                   [AC_LINK_IFELSE([AC_LANG_PROGRAM(
+                        [#include <grpc++/grpc++.h>], [ grpc::Version(); ])],
+                    [TEST_LIBS="$TEST_LIBS -lgrpc++"] [found_grpc=yes],
+                    [AC_MSG_WARN([grpc is not installed.])])])
+
+  if test "x$found_grpc" = "xyes"; then
+    with_bundled_grpc=no
+  else
+    AC_MSG_ERROR([cannot find grpc
+-------------------------------------------------------------------
+You have requested the use of a non-bundled grpc but no suitable
+grpc could be found.
+
+You may want specify the location of grpc by providing a prefix
+path via --with-grpc=DIR, or check that the path you provided is
+correct if you're already doing this.
+-------------------------------------------------------------------
+])
+  fi
+else
+  with_bundled_grpc=yes
+fi
+
+AM_CONDITIONAL([WITH_BUNDLED_GRPC],
+               [test "x$with_bundled_grpc" = "xyes"])
 
 
 if test -n "`echo $with_http_parser`"; then
@@ -1442,6 +1494,9 @@ AM_CONDITIONAL([WITH_BUNDLED_NVML],
 if test -n "`echo $with_protobuf`"; then
   CPPFLAGS="$CPPFLAGS -I${with_protobuf}/include"
   LDFLAGS="$LDFLAGS -L${with_protobuf}/lib"
+
+  PROTOBUF_INCLUDE_DIR="${with_protobuf}/include"
+  PROTOCOMPILER_DIR="${with_protobuf}/bin"
 fi
 
 # Check if user has asked us to use a preinstalled protobuf, or if
@@ -1518,8 +1573,10 @@ fi
 AM_CONDITIONAL([WITH_BUNDLED_PROTOBUF],
                [test "x$with_bundled_protobuf" = "xyes"])
 
+AC_SUBST([PROTOBUF_INCLUDE_DIR])
 AC_SUBST([PROTOBUF_JAR])
 AC_SUBST([PROTOCOMPILER])
+AC_SUBST([PROTOCOMPILER_DIR])
 
 if test -n "`echo $with_libev`"; then
   CPPFLAGS="$CPPFLAGS -I${with_libev}/include"

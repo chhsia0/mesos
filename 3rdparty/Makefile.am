@@ -48,6 +48,7 @@ GLOG = glog-$(GLOG_VERSION)
 GOOGLETEST = googletest-release-$(GOOGLETEST_VERSION)
 GMOCK = $(GOOGLETEST)/googlemock
 GPERFTOOLS = gperftools-$(GPERFTOOLS_VERSION)
+GRPC = grpc-$(GRPC_VERSION)
 GTEST = $(GOOGLETEST)/googletest
 HTTP_PARSER = http-parser-$(HTTP_PARSER_VERSION)
 LEVELDB = leveldb-$(LEVELDB_VERSION)
@@ -66,6 +67,7 @@ EXTRA_DIST =		\
   $(GLOG).tar.gz	\
   $(GOOGLETEST).tar.gz	\
   $(GPERFTOOLS).tar.gz	\
+  $(GRPC).tar.gz        \
   $(HTTP_PARSER).tar.gz	\
   $(LEVELDB).tar.gz	\
   $(LIBEV).tar.gz	\
@@ -105,6 +107,7 @@ CLEAN_EXTRACTED =	\
   $(GLOG)		\
   $(GOOGLETEST)		\
   $(GPERFTOOLS)		\
+  $(GRPC)               \
   $(HTTP_PARSER)	\
   $(LEVELDB)		\
   $(LIBEV)		\
@@ -214,8 +217,32 @@ $(GPERFTOOLS)-build-stamp: $(GPERFTOOLS)-stamp
 	touch $@
 
 ALL_LOCAL += $(LIB_GPERFTOOLS)
+
+GPERFTOOLS_INCLUDE_DIR = $(abs_top_builddir)/3rdparty/$(GPERFTOOLS)/src
+GPERFTOOLS_LIB_DIR     = $(abs_top_builddir)/3rdparty/$(GPERFTOOLS)/.libs
+else
+$(GPERFTOOLS)-build-stamp:
+	touch $@
 endif
 
+
+if WITH_BUNDLED_GRPC
+LIB_GRPC = $(GRPC)/libs/opt/libgrpc++.a
+
+$(LIB_GRPC): $(GRPC)-build-stamp
+
+$(GRPC)-build-stamp: $(GRPC)-stamp             \
+                     $(GPERFTOOLS)-build-stamp \
+                     $(PROTOBUF)-build-stamp
+	cd $(GRPC) && \
+	  PATH=$(PROTOCOMPILER_DIR):$$PATH \
+	  CPATH=$(GPERFTOOLS_INCLUDE_DIR):$(PROTOBUF_INCLUDE_DIR) \
+	  LDFLAGS="-L$(GPERFTOOLS_LIB_DIR) -L$(PROTOBUF_LIB_DIR)" \
+	  make $(AM_MAKEFLAGS) HAS_PKG_CONFIG=false prefix=/ static
+	touch $@
+
+ALL_LOCAL += $(LIB_GRPC)
+endif
 
 if WITH_BUNDLED_HTTP_PARSER
 # Convenience library for nodejs/http-parser.
@@ -262,6 +289,13 @@ $(PROTOBUF)-build-stamp: $(PROTOBUF)-stamp
 	touch $@
 ALL_LOCAL += $(PROTOBUF)/src/libprotobuf.la
 ALL_LOCAL += $(PROTOBUF)/src/protoc
+
+PROTOBUF_INCLUDE_DIR = $(abs_top_builddir)/3rdparty/$(PROTOBUF)/src
+PROTOBUF_LIB_DIR     = $(abs_top_builddir)/3rdparty/$(PROTOBUF)/src/.libs
+PROTOCOMPILER_DIR    = $(abs_top_builddir)/3rdparty/$(PROTOBUF)/src
+else
+$(PROTOBUF)-build-stamp:
+	touch $@
 endif
 
 # Convenience library for gmock/gtest.
