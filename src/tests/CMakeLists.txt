@@ -235,6 +235,10 @@ if (LINUX)
     )
 endif (LINUX)
 
+set(MOCK_CSI_PLUGIN_SRC
+  mock_csi_plugin.cpp
+  )
+
 # INCLUDE DIRECTIVES (generates, e.g., -I/path/to/thing on Linux).
 ##################################################################
 include_directories(SYSTEM ${MESOS_3RDPARTY_TESTS_INCLUDE_DIRS})
@@ -248,11 +252,19 @@ link_directories(${MESOS_TESTS_LIB_DIRS})
 #################################$###############################################
 add_executable(${MESOS_TESTS_TARGET} EXCLUDE_FROM_ALL ${MESOS_TESTS_SRC})
 add_executable(${TEST_HELPER_TARGET} EXCLUDE_FROM_ALL ${TEST_HELPER_SRC})
+add_executable(${MOCK_CSI_PLUGIN_TARGET} EXCLUDE_FROM_ALL ${MOCK_CSI_PLUGIN_SRC})
 
 # ADD LINKER FLAGS (generates, e.g., -lglog on Linux).
 ######################################################
 target_link_libraries(${MESOS_TESTS_TARGET} ${MESOS_TESTS_LIBS})
 target_link_libraries(${TEST_HELPER_TARGET} ${MESOS_TESTS_LIBS})
+target_link_libraries(
+  ${MOCK_CSI_PLUGIN_TARGET}
+  ${MESOS_GRPC_TARGET}
+  ${MESOS_PROTOBUF_TARGET}
+  ${GRPC_LFLAG}
+  ${PROTOBUF_LFLAG}
+  )
 
 # ADD BINARY DEPENDENCIES (tells CMake what to compile/build first).
 ####################################################################

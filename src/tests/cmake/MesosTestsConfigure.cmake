@@ -24,6 +24,11 @@ set(
   CACHE STRING "Test helper target to run tests that require a subprocess"
   )
 
+set(
+  MOCK_CSI_PLUGIN_TARGET mock-csi-plugin
+  CACHE STRING "Mock CSI Plugin"
+  )
+
 # COMPILER CONFIGURATION.
 #########################
 # NOTE: On Windows, these paths should be Windows-style, with '\' characters
