@@ -111,7 +111,6 @@ link_directories(${PROCESS_LIB_DIRS})
 #######################################################################
 add_library(${PROCESS_TARGET} ${PROCESS_SRC})
 
-GROUP_STOUT_HEADERS()
 GROUP_PROCESS_HEADERS()
 
 GROUP_SOURCE(
