@@ -27,27 +27,7 @@ if (NOT WIN32)
   find_package(Svn REQUIRED)
 endif ()
 
-include(GroupSource)
-
-# SOURCE GROUPS. Allows IDEs to group header files for projects taking a
-# dependency on this package.
-########################################################################
-file(
-  GLOB_RECURSE
-  STOUT_HEADERS
-  "${STOUT_INCLUDE_DIR}/stout/*.hpp"
-  "${STOUT_INCLUDE_DIR}/stout/*.h"
-  )
-
-macro(GROUP_STOUT_HEADERS)
-  GROUP_SOURCE(
-    "Stout Public Headers"
-    "${STOUT_INCLUDE_DIR}/stout"
-    "${STOUT_INCLUDE_DIR}/stout"
-    "*.h*")
-endmacro()
-
-# DEFINE PROCESS LIBRARY DEPENDENCIES. Tells the process library build targets
+# DEFINE STOUT LIBRARY DEPENDENCIES. Tells the stout library build targets
 # download/configure/build all third-party libraries before attempting to build.
 ################################################################################
 set(STOUT_DEPENDENCIES
@@ -90,11 +70,6 @@ if (WIN32)
     ${ZLIB_INCLUDE_DIR}
     )
 endif ()
-
-set(STOUT_INCLUDE_DIRS
-  ${STOUT_INCLUDE_DIRS}
-  ${STOUT_INCLUDE_DIR}
-  )
 
 # DEFINE THIRD-PARTY LIB INSTALL DIRECTORIES. Used to tell the compiler
 # toolchain where to find our third party libs (e.g., -L/path/to/glog on
