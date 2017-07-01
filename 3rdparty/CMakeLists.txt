@@ -123,13 +123,6 @@ endforeach ()
 # build directory into `configure` as a prefix; so if we're going to move the
 # libraries, we might as well move them to a library folder.)
 if (NOT WIN32)
-  set(GLOG_CONFIG_CMD  ${GLOG_ROOT}/src/../configure --prefix=${GLOG_LIB_ROOT})
-  set(GLOG_BUILD_CMD   make libglog.la)
-  set(GLOG_INSTALL_CMD make install)
-  # Patch glog to deal with a problem that appears when compiling on clang
-  # under the C++11 standard. cf. MESOS-860, MESOS-966.
-  PATCH_CMD(${MESOS_3RDPARTY_SRC}/glog-${GLOG_VERSION}.patch GLOG_PATCH_CMD)
-
   # NOTE: `libev` is "installed" into a lib directory, see "NOTE: (fix for
   # MESOS-3250)" comment above for explanation.
   set(LIBEV_CONFIG_CMD  ${LIBEV_ROOT}/configure --prefix=${LIBEV_ROOT}-lib)
@@ -140,9 +133,6 @@ if (NOT WIN32)
 
   set(LIBEVENT_INSTALL_CMD mkdir -p ${LIBEVENT_LIB_ROOT} && cp -r ${LIBEVENT_ROOT}-build/lib/. ${LIBEVENT_LIB_DIR} && cp -r ${LIBEVENT_ROOT}-build/include/. ${LIBEVENT_INCLUDE_DIR} && cp -r ${LIBEVENT_ROOT}/include/. ${LIBEVENT_INCLUDE_DIR})
 else ()
-  set(GLOG_INSTALL_CMD ${CMAKE_NOOP})
-  set(GLOG_PATCH_CMD ${PATCHEXE_LOCATION} -p1 < ${MESOS_3RDPARTY_SRC}/glog-${GLOG_VERSION}.patch)
-
   set(LIBEVENT_INSTALL_CMD ${CMAKE_NOOP})
 
   set(LIBAPR_INSTALL_CMD ${CMAKE_NOOP})
@@ -212,10 +202,30 @@ ExternalProject_Add(
   URL_HASH          ${ELFIO_HASH}
   )
 
-# The patch, configure, build, and install commands are stubbed out on Windows
-# builds so that it defaults to build using CMake. This is for the same reason
-# as the GMock code library build, see the call to `ExternalProject_Add` for
-# the GMock project below for more details.
+EXTERNAL("glog" ${GLOG_VERSION} "${MESOS_3RDPARTY_BIN}")
+add_library(glog ${LIBRARY_LINKAGE} IMPORTED)
+add_dependencies(glog ${GLOG_TARGET})
+if (WIN32)
+  set(GLOG_PATCH_CMD ${PATCHEXE_LOCATION} -p1 < ${MESOS_3RDPARTY_SRC}/glog-${GLOG_VERSION}.patch)
+  set(GLOG_INSTALL_CMD ${CMAKE_NOOP})
+  set_target_properties(glog PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${GLOG_ROOT}-build/Debug/glog${LIBRARY_SUFFIX}
+    IMPORTED_LOCATION_RELEASE ${GLOG_ROOT}-build/Release/glog${LIBRARY_SUFFIX}
+    INTERFACE_INCLUDE_DIRECTORIES ${GLOG_ROOT}/src/windows
+    # TODO(andschwa): Remove this when glog is updated.
+    IMPORTED_LINK_INTERFACE_LIBRARIES DbgHelp)
+else ()
+  # Patch glog to deal with a problem that appears when compiling on clang
+  # under the C++11 standard. cf. MESOS-860, MESOS-966.
+  PATCH_CMD(${MESOS_3RDPARTY_SRC}/glog-${GLOG_VERSION}.patch GLOG_PATCH_CMD)
+  # TODO(andschwa): Build with CMake instead when glog is updated.
+  set(GLOG_CONFIG_CMD  ${GLOG_ROOT}/src/../configure --prefix=${GLOG_ROOT}-lib)
+  set(GLOG_BUILD_CMD   make)# libglog.la)
+  set(GLOG_INSTALL_CMD make install)
+  set_target_properties(glog PROPERTIES
+    IMPORTED_LOCATION ${GLOG_ROOT}-lib/lib/${CMAKE_FIND_LIBRARY_PREFIXES}glog${LIBRARY_SUFFIX}
+    INTERFACE_INCLUDE_DIRECTORIES ${GLOG_ROOT}-lib/include)
+endif ()
 ExternalProject_Add(
   ${GLOG_TARGET}
   PREFIX            ${GLOG_CMAKE_ROOT}
