@@ -35,7 +35,6 @@ set(STOUT_DEPENDENCIES
   ${BOOST_TARGET}
   ${ELFIO_TARGET}
   ${NVML_TARGET}
-  ${PROTOBUF_TARGET}
   ${PICOJSON_TARGET}
   )
 
@@ -57,7 +56,6 @@ set(STOUT_3RDPARTY_INCLUDE_DIRS
   ${ELFIO_INCLUDE_DIR}
   ${NVML_INCLUDE_DIR}
   ${PICOJSON_INCLUDE_DIR}
-  ${PROTOBUF_INCLUDE_DIR}
   ${SVN_INCLUDE_DIR}
   )
 
@@ -75,7 +73,6 @@ endif ()
 ########################################################################
 set(STOUT_LIB_DIRS
   ${STOUT_LIB_DIRS}
-  ${PROTOBUF_LIB_DIR}
   )
 
 if (WIN32)
@@ -96,7 +93,7 @@ set(STOUT_LIBS
   ${CURL_LFLAG}
   glog
   ${SVN_LIBS}
-  ${PROTOBUF_LFLAG}
+  protobuf
   )
 
 if (WIN32)
