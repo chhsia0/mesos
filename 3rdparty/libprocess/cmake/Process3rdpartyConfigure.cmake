@@ -18,7 +18,6 @@
 ##################################################
 EXTERNAL("boost"           ${BOOST_VERSION}           "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("concurrentqueue" ${CONCURRENTQUEUE_VERSION} "${MESOS_3RDPARTY_BIN}")
-EXTERNAL("glog"            ${GLOG_VERSION}            "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("elfio"           ${ELFIO_VERSION}           "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("picojson"        ${PICOJSON_VERSION}        "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("http_parser"     ${HTTP_PARSER_VERSION}     "${MESOS_3RDPARTY_BIN}")
@@ -37,7 +36,6 @@ if (WIN32)
 endif ()
 
 # Intermediate convenience variables for oddly-structured directories.
-set(GLOG_LIB_ROOT     ${GLOG_ROOT}-lib/lib)
 set(PROTOBUF_LIB_ROOT ${PROTOBUF_ROOT}-lib/lib)
 set(LIBEV_LIB_ROOT    ${LIBEV_ROOT}-lib/lib)
 set(LIBEVENT_LIB_ROOT ${LIBEVENT_ROOT}-lib/lib)
@@ -57,14 +55,12 @@ set(PICOJSON_INCLUDE_DIR        ${PICOJSON_ROOT})
 if (WIN32)
   set(APR_INCLUDE_DIR      ${LIBAPR_ROOT}/include ${LIBAPR_ROOT}-build)
   set(CURL_INCLUDE_DIR     ${CURL_ROOT}/include)
-  set(GLOG_INCLUDE_DIR     ${GLOG_ROOT}/src/windows)
   set(PROTOBUF_INCLUDE_DIR ${PROTOBUF_ROOT}/src)
   set(LIBEVENT_INCLUDE_DIR
     ${LIBEVENT_ROOT}/include
     ${LIBEVENT_ROOT}-build/include)
   set(ZLIB_INCLUDE_DIR     ${ZLIB_ROOT} ${ZLIB_ROOT}-build)
 else ()
-  set(GLOG_INCLUDE_DIR     ${GLOG_LIB_ROOT}/include)
   set(PROTOBUF_INCLUDE_DIR ${PROTOBUF_LIB_ROOT}/include)
   set(LIBEVENT_INCLUDE_DIR ${LIBEVENT_LIB_ROOT}/include)
 endif ()
@@ -75,13 +71,11 @@ set(LIBEV_LIB_DIR       ${LIBEV_ROOT}-build/.libs)
 if (WIN32)
   set(HTTP_PARSER_LIB_DIR ${HTTP_PARSER_ROOT}-build)
   set(CURL_LIB_DIR        ${CURL_ROOT}-build/lib)
-  set(GLOG_LIB_DIR        ${GLOG_ROOT}-build)
   set(LIBEVENT_LIB_DIR    ${LIBEVENT_ROOT}-build/lib)
   set(PROTOBUF_LIB_DIR    ${PROTOBUF_ROOT}-build)
   set(ZLIB_LIB_DIR        ${ZLIB_ROOT}-build)
 else ()
   set(HTTP_PARSER_LIB_DIR ${HTTP_PARSER_ROOT}-build)
-  set(GLOG_LIB_DIR        ${GLOG_LIB_ROOT}/lib)
   set(LIBEVENT_LIB_DIR    ${LIBEVENT_LIB_ROOT}/lib)
   set(PROTOBUF_LIB_DIR    ${PROTOBUF_LIB_ROOT}/lib)
 endif ()
@@ -91,7 +85,6 @@ endif ()
 set(HTTP_PARSER_LFLAG http_parser)
 set(LIBEV_LFLAG       ev)
 set(LIBEVENT_LFLAG    event)
-set(GLOG_LFLAG        glog)
 
 if (WIN32)
   # Necessary because the lib names for (e.g.) curl are generated incorrectly
@@ -118,14 +111,6 @@ if (WIN32)
   endif ()
 
   string(APPEND ZLIB_LFLAG $<$<CONFIG:Debug>:d>)
-
-  # Windows requires Dbghelp.lib when linking to glog.
-  # NOTE: CMake's dependency graph does not pull in the `Dbghelp` library
-  # automatically as the glog dependency is added into Mesos as an
-  # "external" project.  If we were to, instead, add glog's CMake files
-  # to the build system directly (such as, as a git submodule), glog's
-  # targets would be inherited.
-  set(GLOG_LFLAG     glog Dbghelp)
 else ()
   set(CURL_LFLAG     curl)
   set(DL_LFLAG       dl)
