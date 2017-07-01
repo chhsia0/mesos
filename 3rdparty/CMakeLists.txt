@@ -371,19 +371,11 @@ ExternalProject_Add(
   URL_HASH          ${GOOGLETEST_HASH}
   )
 
-if (NOT WIN32)
-  # NOTE: `ExternalProject_Add` is used separately because older versions
-  # of CMake used on Linux do not understand the `SOURCE_SUBDIR` command.
-  ExternalProject_Add(
-    ${PROTOBUF_TARGET}
-    PREFIX            ${PROTOBUF_CMAKE_ROOT}
-    CONFIGURE_COMMAND ${PROTOBUF_ROOT}/configure --prefix=${PROTOBUF_LIB_ROOT}
-    BUILD_COMMAND     make
-    INSTALL_COMMAND   make install
-    URL               ${PROTOBUF_URL}
-    URL_HASH          ${PROTOBUF_HASH}
-    )
-else ()
+EXTERNAL("protobuf" ${PROTOBUF_VERSION} "${MESOS_3RDPARTY_BIN}")
+# TODO(andschwa): Move protobufs so these don't have to be GLOBAL.
+add_library(protobuf ${LIBRARY_LINKAGE} IMPORTED GLOBAL)
+add_dependencies(protobuf ${PROTOBUF_TARGET})
+if (WIN32)
   ExternalProject_Add(
     ${PROTOBUF_TARGET}
     PREFIX            ${PROTOBUF_CMAKE_ROOT}
@@ -393,6 +385,27 @@ else ()
     URL               ${PROTOBUF_URL}
     URL_HASH          ${PROTOBUF_HASH}
     )
+  set_target_properties(protobuf PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${PROTOBUF_ROOT}-build/Debug/libprotobufd${LIBRARY_SUFFIX}
+    IMPORTED_LOCATION_RELEASE ${PROTOBUF_ROOT}-build/Release/libprotobuf${LIBRARY_SUFFIX}
+    INTERFACE_INCLUDE_DIRECTORIES ${PROTOBUF_ROOT}/src)
+  set(PROTOC ${PROTOBUF_ROOT}-build/$<CONFIG>/protoc.exe)
+else ()
+  # NOTE: `ExternalProject_Add` is used separately because older versions
+  # of CMake used on Linux do not understand the `SOURCE_SUBDIR` command.
+  ExternalProject_Add(
+    ${PROTOBUF_TARGET}
+    PREFIX            ${PROTOBUF_CMAKE_ROOT}
+    CONFIGURE_COMMAND ${PROTOBUF_ROOT}/configure --prefix=${PROTOBUF_ROOT}-lib
+    BUILD_COMMAND     make
+    INSTALL_COMMAND   make install
+    URL               ${PROTOBUF_URL}
+    URL_HASH          ${PROTOBUF_HASH}
+    )
+  set_target_properties(protobuf PROPERTIES
+    IMPORTED_LOCATION ${PROTOBUF_ROOT}-lib/lib/${CMAKE_FIND_LIBRARY_PREFIXES}protobuf${LIBRARY_SUFFIX}
+    INTERFACE_INCLUDE_DIRECTORIES ${PROTOBUF_ROOT}-lib/include)
+  set(PROTOC ${PROTOBUF_ROOT}-lib/bin/protoc)
 endif ()
 
 # BUILDING THE STOUT LIBRARY AND ITS TESTS.
