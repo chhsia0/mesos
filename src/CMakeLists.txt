@@ -112,10 +112,6 @@ set(INTERNAL_PROTOBUF_SRC
 
 # BUILD PROTOBUFS.
 ##################
-include_directories(
-  ${MESOS_PROTOBUF_HEADER_INCLUDE_DIRS}
-  ${PROTOBUF_INCLUDE_DIR})
-
 add_library(
   ${MESOS_PROTOBUF_TARGET}
   ${MESOS_DEFAULT_LIBRARY_LINKAGE}
@@ -124,6 +120,8 @@ add_library(
   )
 
 target_link_libraries(${MESOS_PROTOBUF_TARGET} protobuf)
+target_include_directories(${MESOS_PROTOBUF_TARGET} PUBLIC
+  ${MESOS_PROTOBUF_HEADER_INCLUDE_DIRS})
 
 if (WIN32)
   # Disable all compiler warnings on Protocol Buffers source.
