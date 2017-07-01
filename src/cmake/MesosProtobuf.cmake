@@ -38,8 +38,11 @@
 #       (a) MESOS_PROTO:    ${MESOS_ROOT}/include/mesos/mesos.proto
 #       (b) MESOS_PROTO_CC: ${MESOS_ROOT}/build/include/mesos/mesos.pb.cc
 #       (a) MESOS_PROTO_H:   ${MESOS_ROOT}/build/include/mesos/mesos.pb.h
+#
+# NOTE: The `protoc` binary used here is an imported executable target from
+# `3rdparty/CMakeLists.txt`. However, this is not strictly necessary, and
+# `protoc` could be supplied in `PATH`.
 function(PROTOC_TO_INCLUDE_DIR BASE_NAME BASE_DIR_STRUCTURE)
-
   set(TO_INCLUDE_DIR
     -I${MESOS_PUBLIC_INCLUDE_DIR}
     -I${MESOS_SRC_DIR}
@@ -61,9 +64,9 @@ function(PROTOC_TO_INCLUDE_DIR BASE_NAME BASE_DIR_STRUCTURE)
   set(${H_VAR}     ${H}     PARENT_SCOPE) # e.g., mesos/mesos.pb.h
 
   # Compile the .proto file.
-  ADD_CUSTOM_COMMAND(
+  add_custom_command(
     OUTPUT ${CC} ${H}
-    COMMAND ${PROTOC} ${TO_INCLUDE_DIR} ${PROTO}
+    COMMAND protoc ${TO_INCLUDE_DIR} ${PROTO}
     DEPENDS make_bin_include_dir ${PROTO}
     WORKING_DIRECTORY ${MESOS_BIN})
 endfunction()
@@ -94,9 +97,9 @@ function(PROTOC_TO_SRC_DIR BASE_NAME BASE_DIR_STRUCTURE)
   set(${H_VAR}     ${H}     PARENT_SCOPE) # e.g., mesos/mesos.pb.h
 
   # Compile the .proto file.
-  ADD_CUSTOM_COMMAND(
+  add_custom_command(
     OUTPUT ${CC} ${H}
-    COMMAND ${PROTOC} ${TO_SRC_DIR} ${PROTO}
+    COMMAND protoc ${TO_SRC_DIR} ${PROTO}
     DEPENDS make_bin_src_dir ${PROTO}
     WORKING_DIRECTORY ${MESOS_BIN})
 endfunction()
