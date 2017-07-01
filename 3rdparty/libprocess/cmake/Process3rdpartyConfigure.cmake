@@ -25,7 +25,6 @@ EXTERNAL("libev"           ${LIBEV_VERSION}           "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("libevent"        ${LIBEVENT_VERSION}        "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("libapr"          ${LIBAPR_VERSION}          "${MESOS_3RDPARTY_BIN}")
 EXTERNAL("nvml"            ${NVML_VERSION}            "${MESOS_3RDPARTY_BIN}")
-EXTERNAL("protobuf"        ${PROTOBUF_VERSION}        "${MESOS_3RDPARTY_BIN}")
 
 if (WIN32)
   # NOTE: We expect cURL and zlib exist on Unix (usually pulled in with a
@@ -36,7 +35,6 @@ if (WIN32)
 endif ()
 
 # Intermediate convenience variables for oddly-structured directories.
-set(PROTOBUF_LIB_ROOT ${PROTOBUF_ROOT}-lib/lib)
 set(LIBEV_LIB_ROOT    ${LIBEV_ROOT}-lib/lib)
 set(LIBEVENT_LIB_ROOT ${LIBEVENT_ROOT}-lib/lib)
 
@@ -55,13 +53,11 @@ set(PICOJSON_INCLUDE_DIR        ${PICOJSON_ROOT})
 if (WIN32)
   set(APR_INCLUDE_DIR      ${LIBAPR_ROOT}/include ${LIBAPR_ROOT}-build)
   set(CURL_INCLUDE_DIR     ${CURL_ROOT}/include)
-  set(PROTOBUF_INCLUDE_DIR ${PROTOBUF_ROOT}/src)
   set(LIBEVENT_INCLUDE_DIR
     ${LIBEVENT_ROOT}/include
     ${LIBEVENT_ROOT}-build/include)
   set(ZLIB_INCLUDE_DIR     ${ZLIB_ROOT} ${ZLIB_ROOT}-build)
 else ()
-  set(PROTOBUF_INCLUDE_DIR ${PROTOBUF_LIB_ROOT}/include)
   set(LIBEVENT_INCLUDE_DIR ${LIBEVENT_LIB_ROOT}/include)
 endif ()
 
@@ -72,12 +68,10 @@ if (WIN32)
   set(HTTP_PARSER_LIB_DIR ${HTTP_PARSER_ROOT}-build)
   set(CURL_LIB_DIR        ${CURL_ROOT}-build/lib)
   set(LIBEVENT_LIB_DIR    ${LIBEVENT_ROOT}-build/lib)
-  set(PROTOBUF_LIB_DIR    ${PROTOBUF_ROOT}-build)
   set(ZLIB_LIB_DIR        ${ZLIB_ROOT}-build)
 else ()
   set(HTTP_PARSER_LIB_DIR ${HTTP_PARSER_ROOT}-build)
   set(LIBEVENT_LIB_DIR    ${LIBEVENT_LIB_ROOT}/lib)
-  set(PROTOBUF_LIB_DIR    ${PROTOBUF_LIB_ROOT}/lib)
 endif ()
 
 # Convenience variables for "lflags", the symbols we pass to CMake to generate
@@ -94,12 +88,6 @@ if (WIN32)
   # the library names are generated correctly.
   set(CURL_LFLAG     libcurl)
 
-  set(PROTOBUF_LFLAG libprotobuf)
-
-  # The generator expression below appends the letter "d"
-  # when building the Debug configuration.
-  string(APPEND PROTOBUF_LFLAG $<$<CONFIG:Debug>:d>)
-
   # Zlib generates different libraries depending on the linkage
   # and configuration.  i.e.:
   #   * For a static Debug build: `zlibstaticd`.
@@ -114,15 +102,7 @@ if (WIN32)
 else ()
   set(CURL_LFLAG     curl)
   set(DL_LFLAG       dl)
-  set(PROTOBUF_LFLAG protobuf)
   set(SASL_LFLAG     sasl2)
-endif ()
-
-# Convenience variable for `protoc`, the Protobuf compiler.
-if (NOT WIN32)
-  set(PROTOC ${PROTOBUF_LIB_ROOT}/bin/protoc)
-else ()
-  set(PROTOC ${PROTOBUF_ROOT}-build/$<CONFIG>/protoc.exe)
 endif ()
 
 # Configure the process library, the last of our third-party libraries.
