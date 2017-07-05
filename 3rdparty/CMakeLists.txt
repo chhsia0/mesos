@@ -172,6 +172,15 @@ endif ()
 # Third-party libraries. Tell the build system how to pull in and build third-
 # party libraries at compile time, using the ExternalProject_Add macro.
 ##############################################################################
+
+# This function works around a CMake issue with setting include directories of
+# imported libraries built with `ExternalProject_Add`.
+# https://gitlab.kitware.com/cmake/cmake/issues/15052
+function(MAKE_INCLUDE TARGET)
+  get_target_property(DIR ${TARGET} INTERFACE_INCLUDE_DIRECTORIES)
+  file(MAKE_DIRECTORY ${DIR})
+endfunction()
+
 ExternalProject_Add(
   ${BOOST_TARGET}
   PREFIX            ${BOOST_CMAKE_ROOT}
@@ -226,6 +235,7 @@ else ()
     IMPORTED_LOCATION ${GLOG_ROOT}-lib/lib/${CMAKE_FIND_LIBRARY_PREFIXES}glog${LIBRARY_SUFFIX}
     INTERFACE_INCLUDE_DIRECTORIES ${GLOG_ROOT}-lib/include)
 endif ()
+make_include(glog)
 ExternalProject_Add(
   ${GLOG_TARGET}
   PREFIX            ${GLOG_CMAKE_ROOT}
@@ -412,6 +422,7 @@ else ()
   set_target_properties(protoc PROPERTIES
     IMPORTED_LOCATION ${PROTOBUF_ROOT}-lib/bin/protoc)
 endif ()
+make_include(protobuf)
 
 # BUILDING THE STOUT LIBRARY AND ITS TESTS.
 #
