@@ -41,7 +41,6 @@ set(STOUT_DEPENDENCIES
 if (WIN32)
   set(STOUT_DEPENDENCIES
     ${STOUT_DEPENDENCIES}
-    ${CURL_TARGET}
     ${ZLIB_TARGET}
     )
 endif ()
@@ -62,7 +61,6 @@ set(STOUT_3RDPARTY_INCLUDE_DIRS
 if (WIN32)
   set(STOUT_3RDPARTY_INCLUDE_DIRS
     ${STOUT_3RDPARTY_INCLUDE_DIRS}
-    ${CURL_INCLUDE_DIR}
     ${ZLIB_INCLUDE_DIR}
     )
 endif ()
@@ -78,7 +76,6 @@ set(STOUT_LIB_DIRS
 if (WIN32)
   set(STOUT_LIB_DIRS
     ${STOUT_LIB_DIRS}
-    ${CURL_LIB_DIR}
     ${ZLIB_LIB_DIR}
     )
 endif ()
@@ -90,7 +87,7 @@ set(STOUT_LIBS
   ${STOUT_LIBS}
   ${CMAKE_THREAD_LIBS_INIT}
   ${APR_LIBS}
-  ${CURL_LFLAG}
+  curl
   glog
   ${SVN_LIBS}
   protobuf
