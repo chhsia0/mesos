@@ -30,7 +30,6 @@ if (WIN32)
   # NOTE: We expect cURL and zlib exist on Unix (usually pulled in with a
   # package manager), but Windows has no package manager, so we have to go
   # get it.
-  EXTERNAL("curl" ${CURL_VERSION} "${MESOS_3RDPARTY_BIN}")
   EXTERNAL("zlib" ${ZLIB_VERSION} "${MESOS_3RDPARTY_BIN}")
 endif ()
 
@@ -52,7 +51,6 @@ set(PICOJSON_INCLUDE_DIR        ${PICOJSON_ROOT})
 
 if (WIN32)
   set(APR_INCLUDE_DIR      ${LIBAPR_ROOT}/include ${LIBAPR_ROOT}-build)
-  set(CURL_INCLUDE_DIR     ${CURL_ROOT}/include)
   set(LIBEVENT_INCLUDE_DIR
     ${LIBEVENT_ROOT}/include
     ${LIBEVENT_ROOT}-build/include)
@@ -66,7 +64,6 @@ set(LIBEV_LIB_DIR       ${LIBEV_ROOT}-build/.libs)
 
 if (WIN32)
   set(HTTP_PARSER_LIB_DIR ${HTTP_PARSER_ROOT}-build)
-  set(CURL_LIB_DIR        ${CURL_ROOT}-build/lib)
   set(LIBEVENT_LIB_DIR    ${LIBEVENT_ROOT}-build/lib)
   set(ZLIB_LIB_DIR        ${ZLIB_ROOT}-build)
 else ()
@@ -81,12 +78,6 @@ set(LIBEV_LFLAG       ev)
 set(LIBEVENT_LFLAG    event)
 
 if (WIN32)
-  # Necessary because the lib names for (e.g.) curl are generated incorrectly
-  # on Windows. That is, on *nix, the curl binary should be (e.g.) libcurl.so,
-  # and on Windows it should be curl.lib. But on Windows, it's actually
-  # libcurl.lib. Hence, we have to special case it here because CMake assumes
-  # the library names are generated correctly.
-  set(CURL_LFLAG     libcurl)
 
   # Zlib generates different libraries depending on the linkage
   # and configuration.  i.e.:
@@ -100,7 +91,6 @@ if (WIN32)
 
   string(APPEND ZLIB_LFLAG $<$<CONFIG:Debug>:d>)
 else ()
-  set(CURL_LFLAG     curl)
   set(DL_LFLAG       dl)
   set(SASL_LFLAG     sasl2)
 endif ()
