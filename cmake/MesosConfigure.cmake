@@ -91,6 +91,16 @@ add_custom_target(
   make_bin_src_dir ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory ${MESOS_BIN_SRC_DIR})
 
+add_custom_target(
+  make_bin_java_dir ALL
+  DEPENDS make_bin_src_dir
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${MESOS_BIN_SRC_DIR}/java/generated)
+
+add_custom_target(
+  make_bin_jni_dir ALL
+  DEPENDS make_bin_src_dir
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${MESOS_BIN_SRC_DIR}/java/jni)
+
 # CONFIGURE AGENT.
 ##################
 include(AgentConfigure)

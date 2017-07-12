@@ -261,6 +261,11 @@ add_executable(${TEST_HELPER_TARGET} EXCLUDE_FROM_ALL ${TEST_HELPER_SRC})
 target_link_libraries(${MESOS_TESTS_TARGET} ${MESOS_TESTS_LIBS})
 target_link_libraries(${TEST_HELPER_TARGET} ${MESOS_TESTS_LIBS})
 
+if (HAS_JAVA)
+  target_link_libraries(${MESOS_TESTS_TARGET} mesos-java)
+  target_compile_definitions(${MESOS_TESTS_TARGET} PRIVATE MESOS_HAS_JAVA)
+endif ()
+
 # ADD BINARY DEPENDENCIES (tells CMake what to compile/build first).
 ####################################################################
 add_dependencies(
