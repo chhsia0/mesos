@@ -460,63 +460,54 @@ add_subdirectory(libprocess)
 # Downloads, configures, and compiles the third-party libraries for the mesos.
 ###################################################
 set(LEVELDB_URL   ${FETCH_URL}/leveldb-${LEVELDB_VERSION}.tar.gz)
-# NOTE: The Windows version of ZooKeeper is patched and only available in the
-# 3rdparty repo, not the local repo.
-if (NOT WIN32)
-  set(ZOOKEEPER_URL ${FETCH_URL}/zookeeper-${ZOOKEEPER_VERSION}.tar.gz)
-else ()
-  set(ZOOKEEPER_URL ${3RDPARTY_DEPENDENCIES}/zookeeper-${ZOOKEEPER_VERSION}.tar.gz)
-endif ()
+set(ZOOKEEPER_URL ${FETCH_URL}/zookeeper-${ZOOKEEPER_VERSION}.tar.gz)
 
 
 # Third-party libraries. Tell the build system how to pull in and build third-
 # party libraries at compile time, using the ExternalProject_Add macro.
 ##############################################################################
-if (NOT WIN32)
-  # NOTE: `ExternalProject_Add` is used separately because older versions
-  # of CMake used on Linux do not understand the `SOURCE_SUBDIR` command.
-  PATCH_CMD(
-    ${MESOS_3RDPARTY_SRC}/zookeeper-${ZOOKEEPER_VERSION}.patch
-    ZOOKEEPER_PATCH_CMD)
-
-  # NOTE: ZooKeeper's `configure` script must be run with within the
-  # correct directory or it  will fail to find necessary files, hence the `cd`.
-  set(ZOOKEEPER_CONFIG_CMD cd ${ZOOKEEPER_C_ROOT} && ./configure)
-  if (BUILD_SHARED_LIBS)
-    set(ZOOKEEPER_CONFIG_CMD ${ZOOKEEPER_CONFIG_CMD} --enable-shared=yes --enable-static=no)
-  else ()
-    set(ZOOKEEPER_CONFIG_CMD ${ZOOKEEPER_CONFIG_CMD} --enable-shared=no --enable-static=yes)
-  endif ()
-
-  # NOTE: The `--with-pic` does not mean compile with `-fPIC`.
-  set(ZOOKEEPER_CONFIG_CMD ${ZOOKEEPER_CONFIG_CMD} --with-pic --srcdir=${ZOOKEEPER_C_ROOT} --prefix=${ZOOKEEPER_LIB})
-
-  ExternalProject_Add(
-    ${ZOOKEEPER_TARGET}
-    PREFIX            ${ZOOKEEPER_CMAKE_ROOT}
-    PATCH_COMMAND     ${ZOOKEEPER_PATCH_CMD}
-    CONFIGURE_COMMAND ${ZOOKEEPER_CONFIG_CMD}
-    BUILD_COMMAND     cd ${ZOOKEEPER_C_ROOT} && make
-    INSTALL_COMMAND   cd ${ZOOKEEPER_C_ROOT} && make install
-    URL               ${ZOOKEEPER_URL}
-    URL_HASH          ${ZOOKEEPER_HASH}
-    )
+EXTERNAL("zookeeper" ${ZOOKEEPER_VERSION} "${MESOS_3RDPARTY_BIN}")
+add_library(zookeeper STATIC IMPORTED GLOBAL)
+add_library(zk-hashtable STATIC IMPORTED GLOBAL)
+add_dependencies(zookeeper ${ZOOKEEPER_TARGET})
+if (WIN32)
+  set(ZOOKEEPER_PATCH_CMD ${PATCHEXE_LOCATION} -p1 < ${MESOS_3RDPARTY_SRC}/zookeeper-${ZOOKEEPER_VERSION}.patch)
 else ()
-  ExternalProject_Add(
-    ${ZOOKEEPER_TARGET}
-    PREFIX            ${ZOOKEEPER_CMAKE_ROOT}
-    # Set the patch command which will utilize patch.exe in temp location for no elevation prompt
-    # NOTE: We do not specify the `--binary` patch option here because the
-    # files being modified are extracted with CRLF (Windows) line endings
-    # already. The `--binary` option will instead fail to apply the patch.
-    PATCH_COMMAND     ${PATCHEXE_LOCATION} -p1 < ${MESOS_3RDPARTY_SRC}/zookeeper-${ZOOKEEPER_VERSION}.patch
-    SOURCE_SUBDIR     src/c
-    CMAKE_ARGS        ${CMAKE_FORWARD_ARGS};-DWANT_CPPUNIT=OFF
-    INSTALL_COMMAND   ${CMAKE_NOOP}
-    URL               ${ZOOKEEPER_URL}
-    URL_HASH          ${ZOOKEEPER_HASH}
-    )
+  PATCH_CMD(${MESOS_3RDPARTY_SRC}/zookeeper-${ZOOKEEPER_VERSION}.patch ZOOKEEPER_PATCH_CMD)
 endif ()
+ExternalProject_Add(
+  ${ZOOKEEPER_TARGET}
+  PREFIX            ${ZOOKEEPER_CMAKE_ROOT}
+  # Set the patch command which will utilize patch.exe in temp location for no elevation prompt
+  # NOTE: We do not specify the `--binary` patch option here because the
+  # files being modified are extracted with CRLF (Windows) line endings
+  # already. The `--binary` option will instead fail to apply the patch.
+  PATCH_COMMAND     ${ZOOKEEPER_PATCH_CMD}
+  SOURCE_SUBDIR     src/c
+  CMAKE_ARGS        ${CMAKE_FORWARD_ARGS};-DWANT_CPPUNIT=OFF
+  INSTALL_COMMAND   ${CMAKE_NOOP}
+  URL               ${ZOOKEEPER_URL}
+  URL_HASH          ${ZOOKEEPER_HASH}
+  )
+if (WIN32)
+  set_target_properties(zookeeper PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${ZOOKEEPER_ROOT}-build/Debug/zookeeper${CMAKE_STATIC_LIBRARY_SUFFIX}
+    IMPORTED_LOCATION_RELEASE ${ZOOKEEPER_ROOT}-build/Release/zookeeper${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set_target_properties(zk-hashtable PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${ZOOKEEPER_ROOT}-build/Debug/hashtable${CMAKE_STATIC_LIBRARY_SUFFIX}
+    IMPORTED_LOCATION_RELEASE ${ZOOKEEPER_ROOT}-build/Release/hashtable${CMAKE_STATIC_LIBRARY_SUFFIX})
+else ()
+  set_target_properties(zookeeper PROPERTIES
+    IMPORTED_LOCATION ${ZOOKEEPER_ROOT}-build/${CMAKE_FIND_LIBRARY_PREFIXES}zookeeper${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set_target_properties(zk-hashtable PROPERTIES
+    IMPORTED_LOCATION ${ZOOKEEPER_ROOT}-build/${CMAKE_FIND_LIBRARY_PREFIXES}hashtable${CMAKE_STATIC_LIBRARY_SUFFIX})
+endif ()
+set_target_properties(zookeeper PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "${ZOOKEEPER_ROOT}/src/c/include;${ZOOKEEPER_ROOT}/src/c/generated"
+  INTERFACE_LINK_LIBRARIES zk-hashtable
+  INTERFACE_COMPILE_DEFINITIONS ZOOKEEPER_VERSION="${ZOOKEEPER_VERSION}")
+make_include(zookeeper)
+
 
 if (NOT WIN32)
   PATCH_CMD(
