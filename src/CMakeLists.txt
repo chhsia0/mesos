@@ -491,6 +491,7 @@ if (NOT WIN32)
     ${STATE_SRC}
     state/leveldb.cpp
     state/log.cpp
+    state/zookeeper.cpp
     )
 endif ()
 
