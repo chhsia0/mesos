@@ -404,40 +404,33 @@ add_library(protobuf ${LIBRARY_LINKAGE} IMPORTED GLOBAL)
 add_dependencies(protobuf ${PROTOBUF_TARGET})
 add_executable(protoc IMPORTED GLOBAL)
 add_dependencies(protoc ${PROTOBUF_TARGET})
+ExternalProject_Add(
+  ${PROTOBUF_TARGET}
+  PREFIX            ${PROTOBUF_CMAKE_ROOT}
+  SOURCE_SUBDIR     cmake
+  CMAKE_ARGS        ${CMAKE_FORWARD_ARGS};-Dprotobuf_BUILD_TESTS=OFF
+  INSTALL_COMMAND   ${CMAKE_NOOP}
+  URL               ${PROTOBUF_URL}
+  URL_HASH          ${PROTOBUF_HASH}
+  )
+set_target_properties(protobuf PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES ${PROTOBUF_ROOT}/src)
 if (WIN32)
-  ExternalProject_Add(
-    ${PROTOBUF_TARGET}
-    PREFIX            ${PROTOBUF_CMAKE_ROOT}
-    SOURCE_SUBDIR     cmake
-    CMAKE_ARGS        ${CMAKE_FORWARD_ARGS};-Dprotobuf_BUILD_TESTS=OFF
-    INSTALL_COMMAND   ${CMAKE_NOOP}
-    URL               ${PROTOBUF_URL}
-    URL_HASH          ${PROTOBUF_HASH}
-    )
   set_target_properties(protobuf PROPERTIES
     IMPORTED_LOCATION_DEBUG ${PROTOBUF_ROOT}-build/Debug/libprotobufd${LIBRARY_SUFFIX}
-    IMPORTED_LOCATION_RELEASE ${PROTOBUF_ROOT}-build/Release/libprotobuf${LIBRARY_SUFFIX}
-    INTERFACE_INCLUDE_DIRECTORIES ${PROTOBUF_ROOT}/src)
+    IMPORTED_LOCATION_RELEASE ${PROTOBUF_ROOT}-build/Release/libprotobuf${LIBRARY_SUFFIX})
   set_target_properties(protoc PROPERTIES
     IMPORTED_LOCATION_DEBUG ${PROTOBUF_ROOT}-build/Debug/protoc.exe
     IMPORTED_LOCATION_RELEASE ${PROTOBUF_ROOT}-build/Release/protoc.exe)
 else ()
-  # NOTE: `ExternalProject_Add` is used separately because older versions
-  # of CMake used on Linux do not understand the `SOURCE_SUBDIR` command.
-  ExternalProject_Add(
-    ${PROTOBUF_TARGET}
-    PREFIX            ${PROTOBUF_CMAKE_ROOT}
-    CONFIGURE_COMMAND ${PROTOBUF_ROOT}/configure --prefix=${PROTOBUF_ROOT}-lib
-    BUILD_COMMAND     make
-    INSTALL_COMMAND   make install
-    URL               ${PROTOBUF_URL}
-    URL_HASH          ${PROTOBUF_HASH}
-    )
+  # This is for single-configuration generators such as GNU Make.
+  if (CMAKE_BUILD_TYPE MATCHES DEBUG)
+    set(PROTOBUF_SUFFIX d)
+  endif ()
   set_target_properties(protobuf PROPERTIES
-    IMPORTED_LOCATION ${PROTOBUF_ROOT}-lib/lib/${CMAKE_FIND_LIBRARY_PREFIXES}protobuf${LIBRARY_SUFFIX}
-    INTERFACE_INCLUDE_DIRECTORIES ${PROTOBUF_ROOT}-lib/include)
+    IMPORTED_LOCATION ${PROTOBUF_ROOT}-build/${CMAKE_FIND_LIBRARY_PREFIXES}protobuf${PROTOBUF_SUFFIX}${LIBRARY_SUFFIX})
   set_target_properties(protoc PROPERTIES
-    IMPORTED_LOCATION ${PROTOBUF_ROOT}-lib/bin/protoc)
+    IMPORTED_LOCATION ${PROTOBUF_ROOT}-build/protoc)
 endif ()
 make_include(protobuf)
 
