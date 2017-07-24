@@ -164,6 +164,14 @@ set(PROCESS_LIBS
   ${HTTP_PARSER_LFLAG}
   )
 
+# TODO(chhsiao): gRPC support for Windows.
+if (NOT WIN32)
+  set(PROCESS_LIBS
+    ${PROCESS_LIBS}
+    grpc_libs
+    )
+endif ()
+
 if (NOT ENABLE_LIBEVENT)
   set(PROCESS_LIBS ${PROCESS_LIBS} ${LIBEV_LFLAG})
 else ()

@@ -63,6 +63,14 @@ set(PROCESS_SRC
   timeseries.cpp
   )
 
+# TODO(chhsiao): gRPC support for Windows.
+if (NOT WIN32)
+  set(PROCESS_SRC
+    ${PROCESS_SRC}
+    grpc.cpp
+    )
+endif ()
+
 if (ENABLE_LIBEVENT)
   set(PROCESS_SRC
     ${PROCESS_SRC}
