@@ -43,9 +43,16 @@ set(PROCESS_TESTS_SRC
   timeseries_tests.cpp
   )
 
+# TODO(chhsiao): gRPC support for Windows.
 if (NOT WIN32)
   set(PROCESS_TESTS_SRC
     ${PROCESS_TESTS_SRC}
+    grpc_tests.cpp
+    grpc_tests.grpc.pb.cc
+    grpc_tests.grpc.pb.h
+    grpc_tests.pb.cc
+    grpc_tests.pb.h
+    grpc_tests.proto
     io_tests.cpp
     reap_tests.cpp
     )
