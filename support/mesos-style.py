@@ -219,6 +219,7 @@ class CppLinter(LinterBase):
                     r'protobuf\-2\.4\.1|' \
                     r'googletest\-release\-1\.8\.0|' \
                     r'glog\-0\.3\.3|' \
+                    r'grpc\-1\.4\.2|' \
                     r'boost\-1\.53\.0|' \
                     r'libev\-4\.15|' \
                     r'java/jni|' \
