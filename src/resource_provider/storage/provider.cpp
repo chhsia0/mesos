@@ -75,13 +75,21 @@ class StorageLocalResourceProviderProcess
 {
 public:
   explicit StorageLocalResourceProviderProcess(
-      const process::http::URL& _url,
+      const http::URL& _url,
+      const string& workDir,
       const ResourceProviderInfo& _info,
+      const SlaveID& _slaveId,
       const Option<string>& _authToken)
     : ProcessBase(process::ID::generate("storage-local-resource-provider")),
       url(_url),
+      metaDir(slave::paths::getMetaRootDir(workDir)),
+      resourceProviderAgentDir(slave::paths::getResourceProviderAgentRootDir(
+          workDir,
+          _info.type(),
+          _info.name())),
       contentType(ContentType::PROTOBUF),
       info(_info),
+      slaveId(_slaveId),
       authToken(_authToken) {}
 
   StorageLocalResourceProviderProcess(
@@ -97,9 +105,12 @@ public:
 private:
   void initialize() override;
 
-  const process::http::URL url;
+  const http::URL url;
+  const string metaDir;
+  const string resourceProviderAgentDir;
   const ContentType contentType;
   ResourceProviderInfo info;
+  const SlaveID slaveId;
   Owned<v1::resource_provider::Driver> driver;
   Option<string> authToken;
 };
@@ -163,12 +174,14 @@ void StorageLocalResourceProviderProcess::initialize()
 
 
 Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
-    const process::http::URL& url,
+    const http::URL& url,
+    const string& workDir,
     const ResourceProviderInfo& info,
+    const SlaveID& slaveId,
     const Option<string>& authToken)
 {
   return Owned<LocalResourceProvider>(
-      new StorageLocalResourceProvider(url, info, authToken));
+      new StorageLocalResourceProvider(url, workDir, info, slaveId, authToken));
 }
 
 
@@ -180,10 +193,13 @@ Try<Principal> StorageLocalResourceProvider::principal(
 
 
 StorageLocalResourceProvider::StorageLocalResourceProvider(
-    const process::http::URL& url,
+    const http::URL& url,
+    const string& workDir,
     const ResourceProviderInfo& info,
+    const SlaveID& slaveId,
     const Option<string>& authToken)
-  : process(new StorageLocalResourceProviderProcess(url, info, authToken))
+  : process(new StorageLocalResourceProviderProcess(
+        url, workDir, info, slaveId, authToken))
 {
   spawn(CHECK_NOTNULL(process.get()));
 }
