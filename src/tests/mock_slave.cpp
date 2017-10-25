@@ -120,7 +120,8 @@ MockSlave::MockSlave(
         statusUpdateManager = new slave::StatusUpdateManager(flags),
         &resourceEstimator,
         _qosController.isSome() ? _qosController.get() : &qosController,
-        authorizer),
+        authorizer,
+        resourceProviderManager = new ResourceProviderManager),
     files(slave::READONLY_HTTP_AUTHENTICATION_REALM),
     mockSecretGenerator(_mockSecretGenerator)
 {
@@ -150,6 +151,7 @@ MockSlave::MockSlave(
 
 MockSlave::~MockSlave()
 {
+  delete resourceProviderManager;
   delete statusUpdateManager;
 }
 

@@ -122,7 +122,8 @@ public:
         StatusUpdateManager* statusUpdateManager,
         mesos::slave::ResourceEstimator* resourceEstimator,
         mesos::slave::QoSController* qosController,
-        const Option<Authorizer*>& authorizer);
+        const Option<Authorizer*>& authorizer,
+        ResourceProviderManager* resourceProviderManager);
 
   virtual ~Slave();
 
@@ -657,7 +658,7 @@ private:
   // (allocated and oversubscribable) resources.
   Option<Resources> oversubscribedResources;
 
-  ResourceProviderManager resourceProviderManager;
+  ResourceProviderManager* resourceProviderManager;
   process::Owned<LocalResourceProviderDaemon> localResourceProviderDaemon;
 
   hashmap<UUID, Offer::Operation> offerOperations;

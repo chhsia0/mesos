@@ -40,7 +40,7 @@ class ResourceProviderManager
 {
 public:
   ResourceProviderManager();
-  ~ResourceProviderManager();
+  virtual ~ResourceProviderManager();
 
   ResourceProviderManager(
       const ResourceProviderManager& other) = delete;
@@ -61,6 +61,11 @@ public:
 
   // Returns a stream of messages from the resource provider manager.
   process::Queue<ResourceProviderMessage> messages() const;
+
+protected:
+  // This is only for tests.
+  ResourceProviderManager(
+      const process::Owned<ResourceProviderManagerProcess>& _process);
 
 private:
   process::Owned<ResourceProviderManagerProcess> process;

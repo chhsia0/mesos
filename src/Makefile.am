@@ -1148,6 +1148,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   resource_provider/http_connection.hpp					\
   resource_provider/local.hpp						\
   resource_provider/manager.hpp						\
+  resource_provider/manager_process.hpp					\
   resource_provider/message.hpp						\
   resource_provider/registrar.hpp					\
   resource_provider/registry.hpp					\
@@ -1230,8 +1231,8 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   tests/mesos.hpp							\
   tests/mock_docker.hpp							\
   tests/mock_fetcher.hpp						\
-  tests/mock_slave.hpp							\
   tests/mock_registrar.hpp						\
+  tests/mock_slave.hpp							\
   tests/module.hpp							\
   tests/resources_utils.hpp						\
   tests/script.hpp							\
@@ -1247,6 +1248,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   tests/containerizer/rootfs.hpp					\
   tests/containerizer/setns_test_helper.hpp				\
   tests/containerizer/store.hpp						\
+  tests/resource_provider/mock_manager.hpp				\
   uri/fetcher.hpp							\
   uri/utils.hpp								\
   uri/fetchers/copy.hpp							\
@@ -2454,8 +2456,8 @@ mesos_tests_SOURCES =						\
   tests/metrics_tests.cpp					\
   tests/mock_docker.cpp						\
   tests/mock_fetcher.cpp					\
-  tests/mock_slave.cpp						\
   tests/mock_registrar.cpp					\
+  tests/mock_slave.cpp						\
   tests/module.cpp						\
   tests/module_tests.cpp					\
   tests/oversubscription_tests.cpp				\
@@ -2520,7 +2522,8 @@ mesos_tests_SOURCES =						\
   tests/containerizer/provisioner_backend_tests.cpp		\
   tests/containerizer/provisioner_docker_tests.cpp		\
   tests/containerizer/provisioner_paths_tests.cpp		\
-  tests/containerizer/volume_sandbox_path_isolator_tests.cpp
+  tests/containerizer/volume_sandbox_path_isolator_tests.cpp    \
+  tests/resource_provider/mock_manager.cpp
 
 if ENABLE_XFS_DISK_ISOLATOR
 mesos_tests_SOURCES +=						\

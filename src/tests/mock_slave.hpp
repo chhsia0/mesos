@@ -39,6 +39,8 @@
 
 #include "messages/messages.hpp"
 
+#include "resource_provider/manager.hpp"
+
 #include "slave/slave.hpp"
 
 using ::testing::_;
@@ -217,6 +219,7 @@ private:
   MockResourceEstimator resourceEstimator;
   MockQoSController qosController;
   slave::StatusUpdateManager* statusUpdateManager;
+  ResourceProviderManager* resourceProviderManager;
 
   // Set to the base class `secretGenerator` in `initialize()`. After
   // `initialize()` has executed, this will be `None()`.
