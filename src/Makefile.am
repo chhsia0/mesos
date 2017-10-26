@@ -2606,7 +2606,8 @@ if OS_LINUX
 mesos_tests_SOURCES +=						\
   tests/csi_client_tests.cpp					\
   tests/mock_csi_plugin.cpp					\
-  tests/mock_csi_plugin.hpp
+  tests/mock_csi_plugin.hpp					\
+  tests/resource_provider/storage_local_tests.cpp
 endif
 endif
 
