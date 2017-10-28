@@ -57,6 +57,12 @@ public:
           ResourceProvider*,
           const mesos::resource_provider::Call::UpdateState&));
 
+  MOCK_METHOD2(
+      published,
+      void(
+          ResourceProvider*,
+          const mesos::resource_provider::Call::Published&));
+
 private:
   void _apply(
       const FrameworkID& frameworkId,
@@ -74,6 +80,10 @@ private:
   void _updateState(
       ResourceProvider* resourceProvider,
       const mesos::resource_provider::Call::UpdateState& update);
+
+  void _published(
+      ResourceProvider* resourceProvider,
+      const mesos::resource_provider::Call::Published& published);
 };
 
 

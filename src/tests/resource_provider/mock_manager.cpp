@@ -40,6 +40,10 @@ MockResourceProviderManagerProcess::MockResourceProviderManagerProcess()
   EXPECT_CALL(*this, updateState(_, _))
     .WillRepeatedly(Invoke(
         this, &MockResourceProviderManagerProcess::_updateState));
+
+  EXPECT_CALL(*this, published(_, _))
+    .WillRepeatedly(Invoke(
+        this, &MockResourceProviderManagerProcess::_published));
 }
 
 
@@ -83,6 +87,16 @@ void MockResourceProviderManagerProcess::_updateState(
     const Call::UpdateState& update)
 {
   return ResourceProviderManagerProcess::updateState(resourceProvider, update);
+}
+
+
+void MockResourceProviderManagerProcess::_published(
+    ResourceProvider* resourceProvider,
+    const Call::Published& published)
+{
+  return ResourceProviderManagerProcess::published(
+      resourceProvider,
+      published);
 }
 
 } // namespace tests {

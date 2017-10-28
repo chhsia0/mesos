@@ -108,6 +108,10 @@ public:
       const Offer::Operation& operation,
       const UUID& operationUUID);
 
+  virtual process::Future<Nothing> publish(
+      const SlaveID& slaveId,
+      const Resources& resources);
+
 protected:
   virtual void subscribe(
       const HttpConnection& http,
@@ -121,6 +125,10 @@ protected:
       ResourceProvider* resourceProvider,
       const resource_provider::Call::UpdateState& update);
 
+  virtual void published(
+      ResourceProvider* resourceProvider,
+      const resource_provider::Call::Published& published);
+
   ResourceProviderID newResourceProviderId();
 
 private:
@@ -128,6 +136,7 @@ private:
 
   hashmap<ResourceProviderID, ResourceProvider> resourceProviders;
   process::Queue<ResourceProviderMessage> messages;
+  hashmap<std::string, process::Owned<process::Promise<Nothing>>> pending;
 };
 
 } // namespace internal {
