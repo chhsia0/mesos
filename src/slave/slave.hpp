@@ -530,6 +530,8 @@ private:
   void handleResourceProviderMessage(
       const process::Future<ResourceProviderMessage>& message);
 
+  process::Future<Nothing> publishAllocatedResources();
+
   // Gauge methods.
   double _frameworks_active()
   {

@@ -2448,9 +2448,12 @@ void Slave::__run(
       LOG(INFO) << "Queued " << taskOrTaskGroup(task, taskGroup)
                 << " for executor " << *executor;
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -2892,11 +2895,14 @@ void Slave::launchExecutor(
             << "' of framework " << framework->id();
 
   // Launch the container.
-  containerizer->launch(
-      executor->containerId,
-      containerConfig,
-      environment,
-      pidCheckpointPath)
+  publishAllocatedResources()
+    .then(defer(self(), [=] {
+      return containerizer->launch(
+          executor->containerId,
+          containerConfig,
+          environment,
+          pidCheckpointPath);
+    }))
     .onAny(defer(self(),
                  &Self::executorLaunched,
                  frameworkId,
@@ -3893,9 +3899,12 @@ void Slave::subscribe(
         }
       }
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -4097,9 +4106,12 @@ void Slave::registerExecutor(
         }
       }
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -6762,6 +6774,20 @@ void Slave::handleResourceProviderMessage(
   // Wait for the next message.
   resourceProviderManager->messages().get()
     .onAny(defer(self(), &Self::handleResourceProviderMessage, lambda::_1));
+}
+
+
+Future<Nothing> Slave::publishAllocatedResources()
+{
+  Resources allocated;
+
+  foreachvalue (const Framework* framework, frameworks) {
+    foreachvalue (const Executor* executor, framework->executors) {
+      allocated += executor->allocatedResources();
+    }
+  }
+
+  return resourceProviderManager->publish(info.id(), allocated);
 }
 
 

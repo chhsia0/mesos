@@ -31,6 +31,7 @@
 #include "tests/resource_provider/mock_manager.hpp"
 
 using std::string;
+using std::vector;
 
 using google::protobuf::util::JsonStringToMessage;
 
@@ -41,6 +42,8 @@ using mesos::resource_provider::Event;
 
 using process::Future;
 using process::Owned;
+
+using process::post;
 
 namespace mesos {
 namespace internal {
@@ -231,6 +234,118 @@ TEST_F(StorageLocalResourceProviderTest, ROOT_DestroyPublishedVolume)
 
   // Check if the volume is actually deleted by the test CSI plugin.
   EXPECT_FALSE(os::exists(csiVolumePath));
+}
+
+
+// This test verifies that a the agent asks the storage local resource
+// provider to publish necessary resources before launching tasks.
+TEST_F(StorageLocalResourceProviderTest, ROOT_LaunchTasks)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  MockResourceProviderManagerProcess* process =
+    new MockResourceProviderManagerProcess();
+
+  MockResourceProviderManager resourceProviderManager(
+      (Owned<ResourceProviderManagerProcess>(process)));
+
+  slave::Flags flags = CreateSlaveFlags();
+  flags.authenticate_http_readwrite = false;
+  flags.authenticate_http_readonly = false;
+  flags.isolation = "filesystem/linux";
+  flags.resource_provider_config_dir = resourceProviderConfigDir;
+
+  // Capture the SlaveID.
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Future<Call::UpdateState> stateUpdated;
+  EXPECT_CALL(*process, updateState(_, _))
+    .WillOnce(FutureArg<1>(&stateUpdated));
+
+  Try<Owned<cluster::Slave>> slave = this->StartSlave(
+      detector.get(),
+      &resourceProviderManager,
+      flags);
+
+  ASSERT_SOME(slave);
+
+  AWAIT_READY(slaveRegisteredMessage);
+  const SlaveID& slaveId = slaveRegisteredMessage->slave_id();
+
+  AWAIT_READY(stateUpdated);
+  ASSERT_EQ(1, stateUpdated->resources_size());
+
+  FrameworkID frameworkId;
+  frameworkId.set_value("storage");
+
+  vector<Resource> volumes;
+
+  // Create two volumes and put files into the volumes.
+  for (int i = 0; i < 2; i++) {
+    Future<Call::UpdateOfferOperationStatus> volumeCreated;
+    EXPECT_CALL(*process, updateOfferOperationStatus(_, _))
+      .WillOnce(FutureArg<1>(&volumeCreated));
+
+    const Resource& resource = stateUpdated->resources(0);
+    ASSERT_TRUE(resource.has_scalar());
+
+    Offer::Operation operation;
+    operation.set_type(Offer::Operation::CREATE_VOLUME);
+
+    Offer::Operation::CreateVolume* createVolume =
+      operation.mutable_create_volume();
+    createVolume->mutable_source()->CopyFrom(resource);
+    createVolume->mutable_source()->mutable_scalar()->set_value(
+        resource.scalar().value() / 2);
+    createVolume->set_target_type(Resource::DiskInfo::Source::MOUNT);
+
+    resourceProviderManager.apply(frameworkId, operation, UUID::random());
+
+    AWAIT_READY(volumeCreated);
+    ASSERT_EQ(1, volumeCreated->status().converted_resources_size());
+
+    const Resource& created = volumeCreated->status().converted_resources(0);
+    ASSERT_TRUE(created.has_disk());
+    ASSERT_TRUE(created.disk().has_source());
+    ASSERT_TRUE(created.disk().source().has_id());
+    ASSERT_TRUE(created.disk().source().has_mount());
+    ASSERT_TRUE(created.disk().source().mount().has_root());
+
+    // TODO(chhsiao): Use ID string once we update the CSI spec.
+    csi::VolumeID volumeId;
+    JsonStringToMessage(created.disk().source().id(), &volumeId);
+    ASSERT_TRUE(volumeId.values().count("id"));
+    const string& csiVolumePath = volumeId.values().at("id");
+    ASSERT_SOME(os::touch(path::join(csiVolumePath, "file")));
+
+    volumes.emplace_back(volumeCreated->status().converted_resources(0));
+  }
+
+  // Launch the first framework and its task.
+  {
+    Volume* volume = volumes[0].mutable_disk()->mutable_volume();
+    volume->set_mode(Volume::RW);
+    volume->set_container_path("/tmp/volume0");
+    volume->set_host_path(volumes[0].disk().source().mount().root());
+
+    RunTaskMessage runTaskMessage;
+    runTaskMessage.mutable_framework()->CopyFrom(DEFAULT_FRAMEWORK_INFO);
+    runTaskMessage.mutable_framework()->mutable_id()->set_value("framework0");
+
+    TaskInfo* task = runTaskMessage.mutable_task();
+    task->set_name("task0");
+    task->mutable_task_id()->set_value("task0");
+    task->mutable_slave_id()->CopyFrom(slaveId);
+    task->mutable_resources()->Add()->CopyFrom(volumes[0]);
+    task->mutable_command()->set_shell(true);
+    task->mutable_command()->set_value("test -f /tmp/volume0/file");
+
+    post(master.get()->pid, slave.get()->pid, runTaskMessage);
+  }
 }
 
 } // namespace tests {
