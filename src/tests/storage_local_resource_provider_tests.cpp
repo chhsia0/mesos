@@ -2566,6 +2566,13 @@ TEST_F(StorageLocalResourceProviderTest, ROOT_RetryOperationStatusUpdate)
 
   Future<vector<Offer>> offers;
 
+  // Decline offers without RAW disk resources. The master can send such
+  // offers once it receives the first `UpdateSlaveMessage` after the
+  // resource provider is subscribed, or after receiving the
+  // `UpdateOperationStatusMessage`.
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(DeclineOffers());
+
   auto isRaw = [](
       const Resource& r) {
     return r.has_disk() &&
@@ -2579,6 +2586,15 @@ TEST_F(StorageLocalResourceProviderTest, ROOT_RetryOperationStatusUpdate)
     .WillOnce(FutureArg<1>(&offers));
 
   driver.start();
+
+  // NOTE: If the framework has not declined an unwanted offer yet when
+  // the master updates the agent with the RAW disk resource, the new
+  // allocation triggered by this update won't generate an allocatable
+  // offer due to no CPU and memory resources. So here we first settle
+  // the clock to ensure that the unwanted offer has been declined, then
+  // advance the clock to trigger another allocation.
+  Clock::settle();
+  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers);
   ASSERT_FALSE(offers->empty());
@@ -2627,12 +2643,6 @@ TEST_F(StorageLocalResourceProviderTest, ROOT_RetryOperationStatusUpdate)
   // The master acknowledged the operation status update, so the SLRP shouldn't
   // send further operation status updates.
   EXPECT_NO_FUTURE_PROTOBUFS(UpdateOperationStatusMessage(), _, _);
-
-  // The master received the `UpdateOperationStatusMessage`, so it can now
-  // offer the `MOUNT` disk - no further offers are needed, so they can be
-  // declined.
-  EXPECT_CALL(sched, resourceOffers(&driver, _))
-    .WillRepeatedly(DeclineOffers());
 
   Clock::advance(slave::STATUS_UPDATE_RETRY_INTERVAL_MIN);
   Clock::settle();
@@ -2720,6 +2730,13 @@ TEST_F(
 
   Future<vector<Offer>> offers;
 
+  // Decline offers without RAW disk resources. The master can send such
+  // offers once it receives the first `UpdateSlaveMessage` after the
+  // resource provider is subscribed, or after receiving the
+  // `UpdateOperationStatusMessage`.
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(DeclineOffers());
+
   auto isRaw = [](
       const Resource& r) {
     return r.has_disk() &&
@@ -2733,6 +2750,15 @@ TEST_F(
     .WillOnce(FutureArg<1>(&offers));
 
   driver.start();
+
+  // NOTE: If the framework has not declined an unwanted offer yet when
+  // the master updates the agent with the RAW disk resource, the new
+  // allocation triggered by this update won't generate an allocatable
+  // offer due to no CPU and memory resources. So here we first settle
+  // the clock to ensure that the unwanted offer has been declined, then
+  // advance the clock to trigger another allocation.
+  Clock::settle();
+  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers);
   ASSERT_FALSE(offers->empty());
@@ -2782,12 +2808,6 @@ TEST_F(
   // The master should acknowledge the operation status update once.
   Future<AcknowledgeOperationStatusMessage> acknowledgeOperationStatusMessage =
     FUTURE_PROTOBUF(AcknowledgeOperationStatusMessage(), master.get()->pid, _);
-
-  // Decline offers without RAW disk resources, the master can send such offers
-  // once it receives the first `UpdateSlaveMessage` after the agent failover,
-  // or after receiving the `UpdateOperationStatusMessage`.
-  EXPECT_CALL(sched, resourceOffers(&driver, _))
-    .WillRepeatedly(DeclineOffers());
 
   slave = StartSlave(detector.get(), flags);
   ASSERT_SOME(slave);
