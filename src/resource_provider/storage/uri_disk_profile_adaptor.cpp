@@ -143,11 +143,13 @@ Future<DiskProfileAdaptor::ProfileInfo>
 
   const DiskProfileMapping::CSIManifest& manifest = profileMatrix.at(profile);
 
-  // TODO(chhsiao): A storage resource provider may need to translate
-  // a profile that no longer applies to it to replay a `CREATE_VOLUME`
-  // or `CREATE_BLOCK` operation during recovery, so resource provider
-  // selection is only done in `watch()` but not here. We should do the
-  // selection once profiles are checkpointed in the resource provider.
+  if (!isSelectedResourceProvider(manifest, resourceProviderInfo)) {
+    return Failure(
+        "Profile '" + profile + "' does not apply to resource provider with "
+        "type '" + resourceProviderInfo.type() + "' and name '" +
+        resourceProviderInfo.name() + "'");
+  }
+
   return DiskProfileAdaptor::ProfileInfo{
     manifest.volume_capabilities(),
     manifest.create_parameters()
@@ -160,18 +162,10 @@ Future<hashset<string>> UriDiskProfileAdaptorProcess::watch(
     const ResourceProviderInfo& resourceProviderInfo)
 {
   // Calculate the new set of profiles for the resource provider.
-  // TODO(chhsiao): A storage resource provider assumes that the new set
-  // should be a superset of `knownProfiles`, so we bypass resource
-  // provider selection if a profile is already known. We should do the
-  // selection once profiles are checkpointed in the resource provider.
-  hashset<string> newProfiles = knownProfiles;
+  hashset<string> newProfiles;
   foreachpair (const string& profile,
                const DiskProfileMapping::CSIManifest& manifest,
                profileMatrix) {
-    if (knownProfiles.contains(profile)) {
-      continue;
-    }
-
     if (isSelectedResourceProvider(manifest, resourceProviderInfo)) {
       newProfiles.insert(profile);
     }

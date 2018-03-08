@@ -2959,12 +2959,15 @@ StorageLocalResourceProviderProcess::applyCreateVolumeOrBlock(
     case Resource::DiskInfo::Source::PATH:
     case Resource::DiskInfo::Source::MOUNT: {
       if (resource.disk().source().has_profile()) {
-        CHECK(profileInfos.contains(resource.disk().source().profile()));
+        if (!profileInfos.contains(resource.disk().source().profile())) {
+          return Failure(
+              "Profile '" + resource.disk().source().profile() + "' not found");
+        }
 
-        // TODO(chhsiao): Reject if the source has an inactive profile.
+        const DiskProfileAdaptor::ProfileInfo& profileInfo =
+          profileInfos.at(resource.disk().source().profile());
 
-        if (!profileInfos.at(resource.disk().source().profile())
-               .capability.has_mount()) {
+        if (!profileInfo.capability.has_mount()) {
           return Failure(
               "Profile '" + resource.disk().source().profile() +
               "' cannot be used for CREATE_VOLUME operation");
@@ -2976,7 +2979,7 @@ StorageLocalResourceProviderProcess::applyCreateVolumeOrBlock(
         created = createVolume(
             operationUuid.toString(),
             Bytes(resource.scalar().value() * Bytes::MEGABYTES),
-            profileInfos.at(resource.disk().source().profile()));
+            profileInfo);
       } else {
         const string& volumeId = resource.disk().source().id();
 
@@ -3002,12 +3005,15 @@ StorageLocalResourceProviderProcess::applyCreateVolumeOrBlock(
     }
     case Resource::DiskInfo::Source::BLOCK: {
       if (resource.disk().source().has_profile()) {
-        CHECK(profileInfos.contains(resource.disk().source().profile()));
+        if (!profileInfos.contains(resource.disk().source().profile())) {
+          return Failure(
+              "Profile '" + resource.disk().source().profile() + "' not found");
+        }
 
-        // TODO(chhsiao): Reject if the source has an inactive profile.
+        const DiskProfileAdaptor::ProfileInfo& profileInfo =
+          profileInfos.at(resource.disk().source().profile());
 
-        if (!profileInfos.at(resource.disk().source().profile())
-               .capability.has_block()) {
+        if (!profileInfo.capability.has_block()) {
           return Failure(
               "Profile '" + resource.disk().source().profile() +
               "' cannot be used for CREATE_BLOCK operation");
@@ -3019,7 +3025,7 @@ StorageLocalResourceProviderProcess::applyCreateVolumeOrBlock(
         created = createVolume(
             operationUuid.toString(),
             Bytes(resource.scalar().value() * Bytes::MEGABYTES),
-            profileInfos.at(resource.disk().source().profile()));
+            profileInfo);
       } else {
         const string& volumeId = resource.disk().source().id();
 
