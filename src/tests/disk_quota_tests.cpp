@@ -338,6 +338,152 @@ TEST_F(DiskQuotaTest, VolumeUsageExceedsQuota)
 }
 
 
+// This test verifies that the container will be killed if the volume
+// usage exceeds its quota.
+TEST_F(DiskQuotaTest, ROOT_PersistentVolumeGC)
+{
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.set_role("role1");
+
+  master::Flags masterFlags = CreateMasterFlags();
+
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  slave::Flags slaveFlags = CreateSlaveFlags();
+  slaveFlags.isolation =
+    "posix/cpu,posix/mem,docker/runtime,filesystem/linux,disk/du";
+  slaveFlags.image_providers = "docker";
+  slaveFlags.gc_delay = Milliseconds(10);
+
+  // NOTE: We can't pause the clock because we need the reaper to reap
+  // the 'du' subprocess.
+  slaveFlags.container_disk_watch_interval = Milliseconds(1);
+  slaveFlags.enforce_container_disk_quota = true;
+  slaveFlags.resources = "cpus:1;mem:64;disk(role1):2048";
+
+  Try<Resources> initialResources =
+    Resources::parse(slaveFlags.resources.get());
+  ASSERT_SOME(initialResources);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(frameworkId);
+
+  // Create a task that requests a 1 MB persistent volume but attempts
+  // to use 2MB.
+  Resource volume = createPersistentVolume(
+      Megabytes(1024),
+      "role1",
+      "id1",
+      "volume_path",
+      None(),
+      None(),
+      frameworkInfo.principal());
+
+  {
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  const Offer& offer = offers.get()[0];
+
+  OfferID offerId = offer.id();
+
+  offers = Future<vector<Offer>>();
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  // Create the volume.
+  driver.acceptOffers(
+      {offerId},
+      {CREATE(volume)});
+
+  Clock::pause();
+  Clock::settle();
+  Clock::resume();
+
+  string volumePath =
+    slave::paths::getPersistentVolumePath(slaveFlags.work_dir, volume);
+
+  ASSERT_TRUE(os::exists(volumePath));
+
+  for (int i = 0; i < 5000; i++) {
+    ASSERT_SOME(os::mkdir(path::join(volumePath, "dir" + stringify(i))));
+    for (int j = 0; j < 10; j++) {
+      ASSERT_SOME(os::shell("echo abc > " + path::join(
+          volumePath,
+          "dir" + stringify(i),
+          "file" + stringify(j))));
+    }
+  }
+  }
+
+  while (true) {
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  const Offer& offer = offers.get()[0];
+
+  // We intentionally request a sandbox that is much bugger (16MB) than
+  // the file the task writes (2MB) to the persistent volume (1MB). This
+  // makes sure that the quota is indeed enforced on the persistent volume.
+  Resources taskResources =
+    Resources::parse("cpus:1;mem:64;disk(role1):16").get() + volume;
+
+  TaskInfo task = createTask(
+      offer.slave_id(),
+      taskResources,
+      "test -f volume_path/dir0/file0");
+
+  task.mutable_container()->CopyFrom(createContainerInfo("library/alpine"));
+
+  Future<TaskStatus> status1;
+  Future<TaskStatus> status2;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&status1))
+    .WillOnce(FutureArg<1>(&status2));
+
+  OfferID offerId = offer.id();
+
+  offers = Future<vector<Offer>>();
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  // Create the volume and launch the task.
+  driver.acceptOffers(
+      {offerId},
+      {LAUNCH({task})});
+
+  AWAIT_READY(status1);
+  ASSERT_EQ(task.task_id(), status1->task_id());
+  ASSERT_EQ(TASK_RUNNING, status1->state());
+
+  AWAIT_READY(status2);
+  ASSERT_EQ(task.task_id(), status1->task_id());
+  ASSERT_EQ(TASK_FINISHED, status2->state());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
 // This test verifies that the container will not be killed if
 // disk_enforce_quota flag is false (even if the disk usage exceeds
 // its quota).
