@@ -651,7 +651,14 @@ AS_CASE($ax_cv_cxx_compiler_vendor,
       CXXFLAGS="${CXXFLAGS} -Wno-unused-local-typedef"
     fi
 
-    CXXFLAGS="${CXXFLAGS} -Wno-inconsistent-missing-override"
+    # NOTE: Clang emits `-Winconsistent-missing-override` warnings for most uses
+    # of the Google Mock `MOCK_METHOD` family of macros so we suppress them
+    # here. However, Clang 3.5 does not recognize this option so we need to also
+    # suppress `-Wunknown-warning-option` warnings.
+    # See: https://github.com/google/googletest/issues/533
+    CXXFLAGS="${CXXFLAGS} \
+      -Wno-inconsistent-missing-override \
+      -Wno-unknown-warning-option"
   ], [gnu], [
     # Check for GCC version >= 4.8.
     AX_COMPARE_VERSION([$ax_cv_cxx_compiler_version], [ge], [4.8],
