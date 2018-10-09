@@ -90,6 +90,8 @@ UriDiskProfileAdaptor::UriDiskProfileAdaptor(const Flags& _flags)
 
 UriDiskProfileAdaptor::~UriDiskProfileAdaptor()
 {
+  LOG(INFO) << "Terminating the URI disk profile adaptor...";
+
   terminate(process.get());
   wait(process.get());
 }
@@ -111,6 +113,8 @@ Future<hashset<string>> UriDiskProfileAdaptor::watch(
     const hashset<string>& knownProfiles,
     const ResourceProviderInfo& resourceProviderInfo)
 {
+  LOG(INFO) << "Dispatching watch for the URI disk profile adaptor...";
+
   return dispatch(
       process.get(),
       &UriDiskProfileAdaptorProcess::watch,
@@ -172,6 +176,12 @@ Future<hashset<string>> UriDiskProfileAdaptorProcess::watch(
       newProfiles.insert(profile);
     }
   }
+
+  LOG(INFO)
+    << "Updating the set of known profiles from " << stringify(knownProfiles)
+    << " to " << stringify(newProfiles) << " for resource provider with type '"
+    << resourceProviderInfo.type() << "' and name '"
+    << resourceProviderInfo.name() << "'";
 
   if (newProfiles != knownProfiles) {
     return newProfiles;

@@ -656,7 +656,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::recover()
     .then(defer(self(), [=]() -> Future<Nothing> {
       LOG(INFO)
         << "Finished recovery for resource provider with type '" << info.type()
-        << "' and name '" << info.name();
+        << "' and name '" << info.name() << "'";
 
       state = DISCONNECTED;
 
@@ -1406,10 +1406,17 @@ void StorageLocalResourceProviderProcess::watchProfiles()
     LOG(ERROR) << "Failed to watch for DiskProfileAdaptor: " << message;
   };
 
+  LOG(INFO)
+    << "Starting to watch for profiles for resource provider " << info.id();
+
   // TODO(chhsiao): Consider retrying with backoff.
   loop(
       self(),
       [=] {
+        LOG(INFO)
+          << "Watching the disk profile adaptor for resource provider "
+          << info.id();
+
         return diskProfileAdaptor->watch(profileInfos.keys(), info);
       },
       [=](const hashset<string>& profiles) {
