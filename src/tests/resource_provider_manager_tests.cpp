@@ -1001,7 +1001,7 @@ TEST_P(ResourceProviderManagerHttpApiTest, ConvertResources)
   AWAIT_READY(updateSlaveMessage);
 
   v1::Resource disk = v1::createDiskResource(
-      "200", "*", None(), None(), v1::createDiskSourceRaw());
+      "200", "*", None(), None(), v1::createDiskSourceRaw(None(), "profile"));
 
   updateSlaveMessage = FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
 
@@ -1077,12 +1077,12 @@ TEST_P(ResourceProviderManagerHttpApiTest, ConvertResources)
     .WillOnce(FutureArg<1>(&offers2))
     .WillRepeatedly(Return()); // Ignore subsequent offers.
 
-  mesos.send(
-      v1::createCallAccept(
-          frameworkId,
-          offer1,
-          {v1::RESERVE(reserved),
-           v1::CREATE_DISK(reserved, v1::Resource::DiskInfo::Source::MOUNT)}));
+  mesos.send(v1::createCallAccept(
+      frameworkId,
+      offer1,
+      {v1::RESERVE(reserved),
+       v1::CREATE_DISK(
+           reserved, v1::Resource::DiskInfo::Source::MOUNT, None())}));
 
   // The converted resource should be offered to the framework.
   AWAIT_READY(offers2);

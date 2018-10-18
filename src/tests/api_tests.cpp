@@ -1160,7 +1160,7 @@ TEST_P(MasterAPITest, GetOperations)
   // Start an operation.
   driver.acceptOffers(
       {offer.id()},
-      {CREATE_DISK(rawDisk.get(), Resource::DiskInfo::Source::MOUNT)});
+      {CREATE_DISK(rawDisk.get(), Resource::DiskInfo::Source::MOUNT, None())});
 
   AWAIT_READY(operation);
 
@@ -7952,7 +7952,7 @@ TEST_P(AgentAPITest, GetOperations)
   // Start an operation.
   driver.acceptOffers(
       {offer.id()},
-      {CREATE_DISK(rawDisk.get(), Resource::DiskInfo::Source::MOUNT)});
+      {CREATE_DISK(rawDisk.get(), Resource::DiskInfo::Source::MOUNT, None())});
 
   AWAIT_READY(operation);
 
