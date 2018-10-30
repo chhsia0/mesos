@@ -669,12 +669,15 @@ TEST_F(HealthCheckTest, HealthyTaskNonShell)
 
   driver.launchTasks(offers.get()[0].id(), tasks);
 
+  LOG(INFO) << "Waiting for TASK_STARTING";
   AWAIT_READY(statusStarting);
   EXPECT_EQ(TASK_RUNNING, statusRunning->state());
 
+  LOG(INFO) << "Waiting for TASK_RUNNING";
   AWAIT_READY(statusRunning);
   EXPECT_EQ(TASK_RUNNING, statusRunning->state());
 
+  LOG(INFO) << "Waiting for TASK_RUNNING with a health check status";
   AWAIT_READY(statusHealthy);
   EXPECT_EQ(TASK_RUNNING, statusHealthy->state());
   EXPECT_EQ(
