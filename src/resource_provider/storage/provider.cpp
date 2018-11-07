@@ -62,7 +62,7 @@
 #include "common/protobuf_utils.hpp"
 #include "common/resources_utils.hpp"
 
-#include "csi/client.hpp"
+#include "csi/adaptor.hpp"
 #include "csi/paths.hpp"
 #include "csi/rpc.hpp"
 #include "csi/state.hpp"
@@ -380,11 +380,11 @@ private:
 
   template <csi::v0::RPC rpc>
   Future<typename csi::v0::RPCTraits<rpc>::response_type> call(
-      csi::v0::Client client,
+      csi::v0::Adaptor adaptor,
       typename csi::v0::RPCTraits<rpc>::request_type&& request);
 
-  Future<csi::v0::Client> connect(const string& endpoint);
-  Future<csi::v0::Client> getService(const ContainerID& containerId);
+  Future<csi::v0::Adaptor> connect(const string& endpoint);
+  Future<csi::v0::Adaptor> getService(const ContainerID& containerId);
   Future<hashmap<ContainerID, Option<ContainerStatus>>> getContainers();
   Future<Nothing> waitContainer(const ContainerID& containerId);
   Future<Nothing> killContainer(const ContainerID& containerId);
@@ -463,7 +463,7 @@ private:
   csi::v0::VolumeCapability defaultMountCapability;
   csi::v0::VolumeCapability defaultBlockCapability;
   string bootId;
-  process::grpc::client::Runtime runtime;
+  process::grpc::Client grpcClient;
   Owned<v1::resource_provider::Driver> driver;
   OperationStatusUpdateManager statusUpdateManager;
 
@@ -471,7 +471,7 @@ private:
   hashmap<string, DiskProfileAdaptor::ProfileInfo> profileInfos;
 
   hashmap<ContainerID, Owned<ContainerDaemon>> daemons;
-  hashmap<ContainerID, Owned<Promise<csi::v0::Client>>> services;
+  hashmap<ContainerID, Owned<Promise<csi::v0::Adaptor>>> services;
 
   Option<ContainerID> nodeContainerId;
   Option<ContainerID> controllerContainerId;
@@ -1843,12 +1843,12 @@ void StorageLocalResourceProviderProcess::reconcileOperations(
 template <csi::v0::RPC rpc>
 Future<typename csi::v0::RPCTraits<rpc>::response_type>
 StorageLocalResourceProviderProcess::call(
-    csi::v0::Client client,
+    csi::v0::Adaptor adaptor,
     typename csi::v0::RPCTraits<rpc>::request_type&& request)
 {
   ++metrics.csi_plugin_rpcs_pending.at(rpc);
 
-  return client.call<rpc>(std::move(request))
+  return adaptor.call<rpc>(std::move(request))
     .onAny(defer(self(), [=](
         const Future<typename csi::v0::RPCTraits<rpc>::response_type>& future) {
       --metrics.csi_plugin_rpcs_pending.at(rpc);
@@ -1863,16 +1863,16 @@ StorageLocalResourceProviderProcess::call(
 }
 
 
-// Returns a future of a CSI client that waits for the endpoint socket
+// Returns a future of a CSI adaptor that waits for the endpoint socket
 // to appear if necessary, then connects to the socket and check its
 // readiness.
-Future<csi::v0::Client> StorageLocalResourceProviderProcess::connect(
+Future<csi::v0::Adaptor> StorageLocalResourceProviderProcess::connect(
     const string& endpoint)
 {
-  Future<csi::v0::Client> future;
+  Future<csi::v0::Adaptor> future;
 
   if (os::exists(endpoint)) {
-    future = csi::v0::Client("unix://" + endpoint, runtime);
+    future = csi::v0::Adaptor("unix://" + endpoint, grpcClient);
   } else {
     // Wait for the endpoint socket to appear until the timeout expires.
     Timeout timeout = Timeout::in(CSI_ENDPOINT_CREATION_TIMEOUT);
@@ -1886,9 +1886,9 @@ Future<csi::v0::Client> StorageLocalResourceProviderProcess::connect(
 
           return after(Milliseconds(10));
         },
-        [=](const Nothing&) -> ControlFlow<csi::v0::Client> {
+        [=](const Nothing&) -> ControlFlow<csi::v0::Adaptor> {
           if (os::exists(endpoint)) {
-            return Break(csi::v0::Client("unix://" + endpoint, runtime));
+            return Break(csi::v0::Adaptor("unix://" + endpoint, grpcClient));
           }
 
           return Continue();
@@ -1896,20 +1896,20 @@ Future<csi::v0::Client> StorageLocalResourceProviderProcess::connect(
   }
 
   return future
-    .then(defer(self(), [=](csi::v0::Client client) {
-      return call<csi::v0::PROBE>(client, csi::v0::ProbeRequest())
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
+      return call<csi::v0::PROBE>(adaptor, csi::v0::ProbeRequest())
         .then(defer(self(), [=](
-            const csi::v0::ProbeResponse& response) -> csi::v0::Client {
-          return client;
+            const csi::v0::ProbeResponse& response) -> csi::v0::Adaptor {
+          return adaptor;
         }));
     }));
 }
 
 
-// Returns a future of the latest CSI client for the specified plugin
+// Returns a future of the latest CSI adaptor for the specified plugin
 // container. If the container is not already running, this method will
 // start a new a new container daemon.
-Future<csi::v0::Client> StorageLocalResourceProviderProcess::getService(
+Future<csi::v0::Adaptor> StorageLocalResourceProviderProcess::getService(
     const ContainerID& containerId)
 {
   if (daemons.contains(containerId)) {
@@ -1996,7 +1996,7 @@ Future<csi::v0::Client> StorageLocalResourceProviderProcess::getService(
     ->mutable_mount_propagation()->set_mode(MountPropagation::BIDIRECTIONAL);
 
   CHECK(!services.contains(containerId));
-  services[containerId].reset(new Promise<csi::v0::Client>());
+  services[containerId].reset(new Promise<csi::v0::Adaptor>());
 
   Try<Owned<ContainerDaemon>> daemon = ContainerDaemon::create(
       extractParentEndpoint(url),
@@ -2014,7 +2014,7 @@ Future<csi::v0::Client> StorageLocalResourceProviderProcess::getService(
         ++metrics.csi_plugin_container_terminations;
 
         services.at(containerId)->discard();
-        services.at(containerId).reset(new Promise<csi::v0::Client>());
+        services.at(containerId).reset(new Promise<csi::v0::Adaptor>());
 
         if (os::exists(endpointPath)) {
           Try<Nothing> rm = os::rm(endpointPath);
@@ -2163,10 +2163,10 @@ Future<Nothing> StorageLocalResourceProviderProcess::prepareIdentityService()
   CHECK_SOME(nodeContainerId);
 
   return getService(nodeContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // Get the plugin info.
       return call<csi::v0::GET_PLUGIN_INFO>(
-          client, csi::v0::GetPluginInfoRequest())
+          adaptor, csi::v0::GetPluginInfoRequest())
         .then(defer(self(), [=](
             const csi::v0::GetPluginInfoResponse& response) {
           pluginInfo = response;
@@ -2177,10 +2177,10 @@ Future<Nothing> StorageLocalResourceProviderProcess::prepareIdentityService()
           return getService(nodeContainerId.get());
         }));
     }))
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // Get the plugin capabilities.
       return call<csi::v0::GET_PLUGIN_CAPABILITIES>(
-          client, csi::v0::GetPluginCapabilitiesRequest())
+          adaptor, csi::v0::GetPluginCapabilitiesRequest())
         .then(defer(self(), [=](
             const csi::v0::GetPluginCapabilitiesResponse& response) {
           pluginCapabilities = response.capabilities();
@@ -2206,10 +2206,10 @@ Future<Nothing> StorageLocalResourceProviderProcess::prepareControllerService()
   }
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // Get the controller plugin info and check for consistency.
       return call<csi::v0::GET_PLUGIN_INFO>(
-          client, csi::v0::GetPluginInfoRequest())
+          adaptor, csi::v0::GetPluginInfoRequest())
         .then(defer(self(), [=](
             const csi::v0::GetPluginInfoResponse& response) {
           LOG(INFO) << "Controller plugin loaded: " << stringify(response);
@@ -2225,10 +2225,10 @@ Future<Nothing> StorageLocalResourceProviderProcess::prepareControllerService()
           return getService(controllerContainerId.get());
         }));
     }))
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // Get the controller capabilities.
       return call<csi::v0::CONTROLLER_GET_CAPABILITIES>(
-          client, csi::v0::ControllerGetCapabilitiesRequest())
+          adaptor, csi::v0::ControllerGetCapabilitiesRequest())
         .then(defer(self(), [=](
             const csi::v0::ControllerGetCapabilitiesResponse& response) {
           controllerCapabilities = response.capabilities();
@@ -2246,25 +2246,26 @@ Future<Nothing> StorageLocalResourceProviderProcess::prepareNodeService()
   CHECK_SOME(nodeContainerId);
 
   return getService(nodeContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // Get the node capabilities.
       return call<csi::v0::NODE_GET_CAPABILITIES>(
-          client, csi::v0::NodeGetCapabilitiesRequest())
+          adaptor, csi::v0::NodeGetCapabilitiesRequest())
         .then(defer(self(), [=](
             const csi::v0::NodeGetCapabilitiesResponse& response)
-            -> Future<csi::v0::Client> {
+            -> Future<csi::v0::Adaptor> {
           nodeCapabilities = response.capabilities();
 
           // Get the latest service future before proceeding to the next step.
           return getService(nodeContainerId.get());
         }))
-        .then(defer(self(), [=](csi::v0::Client client) -> Future<Nothing> {
+        .then(defer(self(), [=](csi::v0::Adaptor adaptor) -> Future<Nothing> {
           if (!controllerCapabilities.publishUnpublishVolume) {
             return Nothing();
           }
 
           // Get the node ID.
-          return call<csi::v0::NODE_GET_ID>(client, csi::v0::NodeGetIdRequest())
+          return call<csi::v0::NODE_GET_ID>(
+              adaptor, csi::v0::NodeGetIdRequest())
             .then(defer(self(), [=](
                 const csi::v0::NodeGetIdResponse& response) {
               nodeId = response.node_id();
@@ -2300,7 +2301,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::controllerPublish(
 
   return getService(controllerContainerId.get())
     .then(defer(self(), [this, volumeId](
-        csi::v0::Client client) -> Future<Nothing> {
+        csi::v0::Adaptor adaptor) -> Future<Nothing> {
       VolumeData& volume = volumes.at(volumeId);
 
       if (volume.state.state() == VolumeState::CREATED) {
@@ -2319,7 +2320,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::controllerPublish(
       *request.mutable_volume_attributes() = volume.state.volume_attributes();
 
       return call<csi::v0::CONTROLLER_PUBLISH_VOLUME>(
-          client, std::move(request))
+          adaptor, std::move(request))
         .then(defer(self(), [this, volumeId](
             const csi::v0::ControllerPublishVolumeResponse& response) {
           VolumeData& volume = volumes.at(volumeId);
@@ -2357,7 +2358,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::controllerUnpublish(
   CHECK_SOME(nodeId);
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [this, volumeId](csi::v0::Client client) {
+    .then(defer(self(), [this, volumeId](csi::v0::Adaptor adaptor) {
       VolumeData& volume = volumes.at(volumeId);
 
       // A previously failed `ControllerPublishVolume` call can be recovered
@@ -2376,7 +2377,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::controllerUnpublish(
       request.set_node_id(nodeId.get());
 
       return call<csi::v0::CONTROLLER_UNPUBLISH_VOLUME>(
-          client, std::move(request))
+          adaptor, std::move(request))
         .then(defer(self(), [this, volumeId] {
           VolumeData& volume = volumes.at(volumeId);
 
@@ -2413,7 +2414,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeStage(
 
   return getService(nodeContainerId.get())
     .then(defer(self(), [this, volumeId](
-        csi::v0::Client client) -> Future<Nothing> {
+        csi::v0::Adaptor adaptor) -> Future<Nothing> {
       VolumeData& volume = volumes.at(volumeId);
 
       const string stagingPath = csi::paths::getMountStagingPath(
@@ -2445,7 +2446,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeStage(
         ->CopyFrom(volume.state.volume_capability());
       *request.mutable_volume_attributes() = volume.state.volume_attributes();
 
-      return call<csi::v0::NODE_STAGE_VOLUME>(client, std::move(request))
+      return call<csi::v0::NODE_STAGE_VOLUME>(adaptor, std::move(request))
         .then(defer(self(), [this, volumeId] {
           VolumeData& volume = volumes.at(volumeId);
 
@@ -2481,7 +2482,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeUnstage(
   CHECK_SOME(nodeContainerId);
 
   return getService(nodeContainerId.get())
-    .then(defer(self(), [this, volumeId](csi::v0::Client client) {
+    .then(defer(self(), [this, volumeId](csi::v0::Adaptor adaptor) {
       VolumeData& volume = volumes.at(volumeId);
 
       const string stagingPath = csi::paths::getMountStagingPath(
@@ -2508,7 +2509,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeUnstage(
       request.set_volume_id(volumeId);
       request.set_staging_target_path(stagingPath);
 
-      return call<csi::v0::NODE_UNSTAGE_VOLUME>(client, std::move(request))
+      return call<csi::v0::NODE_UNSTAGE_VOLUME>(adaptor, std::move(request))
         .then(defer(self(), [this, volumeId] {
           VolumeData& volume = volumes.at(volumeId);
 
@@ -2533,7 +2534,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodePublish(
 
   return getService(nodeContainerId.get())
     .then(defer(self(), [this, volumeId](
-        csi::v0::Client client) -> Future<Nothing> {
+        csi::v0::Adaptor adaptor) -> Future<Nothing> {
       VolumeData& volume = volumes.at(volumeId);
 
       const string targetPath = csi::paths::getMountTargetPath(
@@ -2579,7 +2580,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodePublish(
         request.set_staging_target_path(stagingPath);
       }
 
-      return call<csi::v0::NODE_PUBLISH_VOLUME>(client, std::move(request))
+      return call<csi::v0::NODE_PUBLISH_VOLUME>(adaptor, std::move(request))
         .then(defer(self(), [this, volumeId] {
           VolumeData& volume = volumes.at(volumeId);
 
@@ -2602,7 +2603,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeUnpublish(
   CHECK_SOME(nodeContainerId);
 
   return getService(nodeContainerId.get())
-    .then(defer(self(), [this, volumeId](csi::v0::Client client) {
+    .then(defer(self(), [this, volumeId](csi::v0::Adaptor adaptor) {
       VolumeData& volume = volumes.at(volumeId);
 
       const string targetPath = csi::paths::getMountTargetPath(
@@ -2629,7 +2630,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::nodeUnpublish(
       request.set_volume_id(volumeId);
       request.set_target_path(targetPath);
 
-      return call<csi::v0::NODE_UNPUBLISH_VOLUME>(client, std::move(request))
+      return call<csi::v0::NODE_UNPUBLISH_VOLUME>(adaptor, std::move(request))
         .then(defer(self(), [this, volumeId, targetPath]() -> Future<Nothing> {
           VolumeData& volume = volumes.at(volumeId);
 
@@ -2664,7 +2665,7 @@ Future<string> StorageLocalResourceProviderProcess::createVolume(
   CHECK_SOME(controllerContainerId);
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       csi::v0::CreateVolumeRequest request;
       request.set_name(name);
       request.mutable_capacity_range()
@@ -2674,7 +2675,7 @@ Future<string> StorageLocalResourceProviderProcess::createVolume(
       request.add_volume_capabilities()->CopyFrom(profileInfo.capability);
       *request.mutable_parameters() = profileInfo.parameters;
 
-      return call<csi::v0::CREATE_VOLUME>(client, std::move(request))
+      return call<csi::v0::CREATE_VOLUME>(adaptor, std::move(request))
         .then(defer(self(), [=](
             const csi::v0::CreateVolumeResponse& response) -> string {
           const csi::v0::Volume& volume = response.volume();
@@ -2769,11 +2770,11 @@ Future<Nothing> StorageLocalResourceProviderProcess::deleteVolume(
       if (!preExisting) {
         deleted = deleted
           .then(defer(self(), &Self::getService, controllerContainerId.get()))
-          .then(defer(self(), [this, volumeId](csi::v0::Client client) {
+          .then(defer(self(), [this, volumeId](csi::v0::Adaptor adaptor) {
             csi::v0::DeleteVolumeRequest request;
             request.set_volume_id(volumeId);
 
-            return call<csi::v0::DELETE_VOLUME>(client, std::move(request))
+            return call<csi::v0::DELETE_VOLUME>(adaptor, std::move(request))
               .then([] { return Nothing(); });
           }));
       }
@@ -2829,7 +2830,7 @@ Future<string> StorageLocalResourceProviderProcess::validateCapability(
   CHECK_SOME(controllerContainerId);
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       google::protobuf::Map<string, string> volumeAttributes;
 
       if (metadata.isSome()) {
@@ -2842,7 +2843,7 @@ Future<string> StorageLocalResourceProviderProcess::validateCapability(
       *request.mutable_volume_attributes() = volumeAttributes;
 
       return call<csi::v0::VALIDATE_VOLUME_CAPABILITIES>(
-          client, std::move(request))
+          adaptor, std::move(request))
         .then(defer(self(), [=](
             const csi::v0::ValidateVolumeCapabilitiesResponse& response)
             -> Future<string> {
@@ -2880,10 +2881,10 @@ Future<Resources> StorageLocalResourceProviderProcess::listVolumes()
   CHECK_SOME(controllerContainerId);
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       // TODO(chhsiao): Set the max entries and use a loop to do
       // multiple `ListVolumes` calls.
-      return call<csi::v0::LIST_VOLUMES>(client, csi::v0::ListVolumesRequest())
+      return call<csi::v0::LIST_VOLUMES>(adaptor, csi::v0::ListVolumesRequest())
         .then(defer(self(), [=](const csi::v0::ListVolumesResponse& response) {
           Resources resources;
 
@@ -2931,7 +2932,7 @@ Future<Resources> StorageLocalResourceProviderProcess::getCapacities()
   CHECK_SOME(controllerContainerId);
 
   return getService(controllerContainerId.get())
-    .then(defer(self(), [=](csi::v0::Client client) {
+    .then(defer(self(), [=](csi::v0::Adaptor adaptor) {
       vector<Future<Resources>> futures;
 
       foreachpair (const string& profile,
@@ -2942,7 +2943,7 @@ Future<Resources> StorageLocalResourceProviderProcess::getCapacities()
         *request.mutable_parameters() = profileInfo.parameters;
 
         futures.push_back(call<csi::v0::GET_CAPACITY>(
-            client, std::move(request))
+            adaptor, std::move(request))
           .then(defer(self(), [=](
               const csi::v0::GetCapacityResponse& response) -> Resources {
             if (response.available_capacity() == 0) {

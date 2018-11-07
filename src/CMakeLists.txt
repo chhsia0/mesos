@@ -234,7 +234,7 @@ set(COMMON_SRC
   common/values.cpp)
 
 set(CSI_SRC
-  csi/client.cpp
+  csi/adaptor.cpp
   csi/paths.cpp
   csi/rpc.cpp
   csi/utils.cpp)

@@ -14,16 +14,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <utility>
+#include "csi/adaptor.hpp"
 
-#include "csi/client.hpp"
+#include <utility>
 
 using process::Failure;
 using process::Future;
 
+using process::grpc::CallOptions;
 using process::grpc::StatusError;
-
-using process::grpc::client::CallOptions;
 
 namespace mesos {
 namespace csi {
@@ -31,10 +30,10 @@ namespace v0 {
 
 template <>
 Future<GetPluginInfoResponse>
-Client::call<GET_PLUGIN_INFO>(
+Adaptor::call<GET_PLUGIN_INFO>(
     GetPluginInfoRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Identity, GetPluginInfo),
@@ -49,10 +48,10 @@ Client::call<GET_PLUGIN_INFO>(
 
 template <>
 Future<GetPluginCapabilitiesResponse>
-Client::call<GET_PLUGIN_CAPABILITIES>(
+Adaptor::call<GET_PLUGIN_CAPABILITIES>(
     GetPluginCapabilitiesRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Identity, GetPluginCapabilities),
@@ -67,10 +66,10 @@ Client::call<GET_PLUGIN_CAPABILITIES>(
 
 template <>
 Future<ProbeResponse>
-Client::call<PROBE>(
+Adaptor::call<PROBE>(
     ProbeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Identity, Probe),
@@ -85,10 +84,10 @@ Client::call<PROBE>(
 
 template <>
 Future<CreateVolumeResponse>
-Client::call<CREATE_VOLUME>(
+Adaptor::call<CREATE_VOLUME>(
     CreateVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, CreateVolume),
@@ -103,10 +102,10 @@ Client::call<CREATE_VOLUME>(
 
 template <>
 Future<DeleteVolumeResponse>
-Client::call<DELETE_VOLUME>(
+Adaptor::call<DELETE_VOLUME>(
     DeleteVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, DeleteVolume),
@@ -121,10 +120,10 @@ Client::call<DELETE_VOLUME>(
 
 template <>
 Future<ControllerPublishVolumeResponse>
-Client::call<CONTROLLER_PUBLISH_VOLUME>(
+Adaptor::call<CONTROLLER_PUBLISH_VOLUME>(
     ControllerPublishVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, ControllerPublishVolume),
@@ -139,10 +138,10 @@ Client::call<CONTROLLER_PUBLISH_VOLUME>(
 
 template <>
 Future<ControllerUnpublishVolumeResponse>
-Client::call<CONTROLLER_UNPUBLISH_VOLUME>(
+Adaptor::call<CONTROLLER_UNPUBLISH_VOLUME>(
     ControllerUnpublishVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, ControllerUnpublishVolume),
@@ -157,10 +156,10 @@ Client::call<CONTROLLER_UNPUBLISH_VOLUME>(
 
 template <>
 Future<ValidateVolumeCapabilitiesResponse>
-Client::call<VALIDATE_VOLUME_CAPABILITIES>(
+Adaptor::call<VALIDATE_VOLUME_CAPABILITIES>(
     ValidateVolumeCapabilitiesRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, ValidateVolumeCapabilities),
@@ -175,10 +174,10 @@ Client::call<VALIDATE_VOLUME_CAPABILITIES>(
 
 template <>
 Future<ListVolumesResponse>
-Client::call<LIST_VOLUMES>(
+Adaptor::call<LIST_VOLUMES>(
     ListVolumesRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, ListVolumes),
@@ -193,10 +192,10 @@ Client::call<LIST_VOLUMES>(
 
 template <>
 Future<GetCapacityResponse>
-Client::call<GET_CAPACITY>(
+Adaptor::call<GET_CAPACITY>(
     GetCapacityRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, GetCapacity),
@@ -211,10 +210,10 @@ Client::call<GET_CAPACITY>(
 
 template <>
 Future<ControllerGetCapabilitiesResponse>
-Client::call<CONTROLLER_GET_CAPABILITIES>(
+Adaptor::call<CONTROLLER_GET_CAPABILITIES>(
     ControllerGetCapabilitiesRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Controller, ControllerGetCapabilities),
@@ -229,10 +228,10 @@ Client::call<CONTROLLER_GET_CAPABILITIES>(
 
 template <>
 Future<NodeStageVolumeResponse>
-Client::call<NODE_STAGE_VOLUME>(
+Adaptor::call<NODE_STAGE_VOLUME>(
     NodeStageVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodeStageVolume),
@@ -247,10 +246,10 @@ Client::call<NODE_STAGE_VOLUME>(
 
 template <>
 Future<NodeUnstageVolumeResponse>
-Client::call<NODE_UNSTAGE_VOLUME>(
+Adaptor::call<NODE_UNSTAGE_VOLUME>(
     NodeUnstageVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodeUnstageVolume),
@@ -265,10 +264,10 @@ Client::call<NODE_UNSTAGE_VOLUME>(
 
 template <>
 Future<NodePublishVolumeResponse>
-Client::call<NODE_PUBLISH_VOLUME>(
+Adaptor::call<NODE_PUBLISH_VOLUME>(
     NodePublishVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodePublishVolume),
@@ -283,10 +282,10 @@ Client::call<NODE_PUBLISH_VOLUME>(
 
 template <>
 Future<NodeUnpublishVolumeResponse>
-Client::call<NODE_UNPUBLISH_VOLUME>(
+Adaptor::call<NODE_UNPUBLISH_VOLUME>(
     NodeUnpublishVolumeRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodeUnpublishVolume),
@@ -301,10 +300,10 @@ Client::call<NODE_UNPUBLISH_VOLUME>(
 
 template <>
 Future<NodeGetIdResponse>
-Client::call<NODE_GET_ID>(
+Adaptor::call<NODE_GET_ID>(
     NodeGetIdRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodeGetId),
@@ -319,10 +318,10 @@ Client::call<NODE_GET_ID>(
 
 template <>
 Future<NodeGetCapabilitiesResponse>
-Client::call<NODE_GET_CAPABILITIES>(
+Adaptor::call<NODE_GET_CAPABILITIES>(
     NodeGetCapabilitiesRequest request)
 {
-  return runtime
+  return client
     .call(
         connection,
         GRPC_CLIENT_METHOD(Node, NodeGetCapabilities),

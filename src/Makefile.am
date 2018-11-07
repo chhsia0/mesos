@@ -1521,16 +1521,16 @@ libbuild_la_CPPFLAGS += -DBUILD_FLAGS="\"$$BUILD_FLAGS\""
 libmesos_no_3rdparty_la_LIBADD += libbuild.la
 
 
-# Convenience library for build the CSI client.
+# Convenience library for build the CSI adaptor.
 noinst_LTLIBRARIES += libcsi.la
 libcsi_la_SOURCES =							\
-  csi/client.cpp							\
+  csi/adaptor.cpp							\
   csi/paths.cpp								\
   csi/rpc.cpp								\
   csi/utils.cpp
 libcsi_la_SOURCES +=							\
   ../include/csi/spec.hpp						\
-  csi/client.hpp							\
+  csi/adaptor.hpp							\
   csi/paths.hpp								\
   csi/rpc.hpp								\
   csi/state.hpp								\
@@ -2480,7 +2480,7 @@ mesos_tests_SOURCES =						\
   tests/containerizer.hpp					\
   tests/cram_md5_authentication_tests.cpp			\
   tests/credentials_tests.cpp					\
-  tests/csi_client_tests.cpp					\
+  tests/csi_adaptor_tests.cpp					\
   tests/default_executor_tests.cpp				\
   tests/disk_profile_adaptor_tests.cpp				\
   tests/disk_profile_server.hpp					\

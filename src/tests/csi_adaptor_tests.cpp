@@ -25,7 +25,7 @@
 
 #include <stout/tests/utils.hpp>
 
-#include "csi/client.hpp"
+#include "csi/adaptor.hpp"
 #include "csi/rpc.hpp"
 
 #include "tests/mock_csi_plugin.hpp"
@@ -35,8 +35,8 @@ using std::string;
 
 using process::Future;
 
-using process::grpc::client::Connection;
-using process::grpc::client::Runtime;
+using process::grpc::Connection;
+using process::grpc::Client;
 
 using testing::TestParamInfo;
 using testing::Values;
@@ -61,8 +61,8 @@ struct RPCParam
   {
     return RPCParam{
       rpc,
-      [](csi::v0::Client client) {
-        return client
+      [](csi::v0::Adaptor adaptor) {
+        return adaptor
           .call<rpc>(typename csi::v0::RPCTraits<rpc>::request_type())
           .then([] { return Nothing(); });
       }
@@ -70,11 +70,11 @@ struct RPCParam
   }
 
   const csi::v0::RPC value;
-  const std::function<Future<Nothing>(csi::v0::Client)> call;
+  const std::function<Future<Nothing>(csi::v0::Adaptor)> call;
 };
 
 
-class CSIClientTest
+class CSIAdaptorTest
   : public TemporaryDirectoryTest,
     public WithParamInterface<RPCParam>
 {
@@ -91,21 +91,21 @@ protected:
 
   void TearDown() override
   {
-    runtime.terminate();
-    AWAIT_ASSERT_READY(runtime.wait());
+    client.terminate();
+    AWAIT_ASSERT_READY(client.wait());
 
     ASSERT_SOME(plugin.shutdown());
   }
 
   MockCSIPlugin plugin;
-  Option<process::grpc::client::Connection> connection;
-  process::grpc::client::Runtime runtime;
+  Option<process::grpc::Connection> connection;
+  process::grpc::Client client;
 };
 
 
 INSTANTIATE_TEST_CASE_P(
     Identity,
-    CSIClientTest,
+    CSIAdaptorTest,
     Values(
         RPCParam::create<csi::v0::GET_PLUGIN_INFO>(),
         RPCParam::create<csi::v0::GET_PLUGIN_CAPABILITIES>(),
@@ -115,7 +115,7 @@ INSTANTIATE_TEST_CASE_P(
 
 INSTANTIATE_TEST_CASE_P(
     Controller,
-    CSIClientTest,
+    CSIAdaptorTest,
     Values(
         RPCParam::create<csi::v0::CREATE_VOLUME>(),
         RPCParam::create<csi::v0::DELETE_VOLUME>(),
@@ -130,7 +130,7 @@ INSTANTIATE_TEST_CASE_P(
 
 INSTANTIATE_TEST_CASE_P(
     Node,
-    CSIClientTest,
+    CSIAdaptorTest,
     Values(
         RPCParam::create<csi::v0::NODE_STAGE_VOLUME>(),
         RPCParam::create<csi::v0::NODE_UNSTAGE_VOLUME>(),
@@ -141,11 +141,11 @@ INSTANTIATE_TEST_CASE_P(
     RPCParam::Printer());
 
 
-// This test verifies that the all methods of CSI clients work.
-TEST_P(CSIClientTest, Call)
+// This test verifies that the all methods of CSI adaptors work.
+TEST_P(CSIAdaptorTest, Call)
 {
   AWAIT_EXPECT_READY(
-      GetParam().call(csi::v0::Client(connection.get(), runtime)));
+      GetParam().call(csi::v0::Adaptor(connection.get(), client)));
 }
 
 } // namespace tests {

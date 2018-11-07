@@ -30,7 +30,7 @@ using mesos::csi::v0::Controller;
 using mesos::csi::v0::Identity;
 using mesos::csi::v0::Node;
 
-using process::grpc::client::Connection;
+using process::grpc::Connection;
 
 using testing::_;
 using testing::Return;

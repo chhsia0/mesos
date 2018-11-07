@@ -88,7 +88,7 @@ set(MESOS_TESTS_SRC
   container_daemon_tests.cpp
   cram_md5_authentication_tests.cpp
   credentials_tests.cpp
-  csi_client_tests.cpp
+  csi_adaptor_tests.cpp
   default_executor_tests.cpp
   exception_tests.cpp
   executor_http_api_tests.cpp
