@@ -30,8 +30,6 @@
 #include "grpc_tests.grpc.pb.h"
 #include "grpc_tests.pb.h"
 
-namespace client = process::grpc::client;
-
 using std::shared_ptr;
 using std::string;
 using std::unique_ptr;
@@ -46,9 +44,10 @@ using ::grpc::Status;
 using process::Future;
 using process::Promise;
 
+using process::grpc::CallOptions;
+using process::grpc::Client;
+using process::grpc::Connection;
 using process::grpc::StatusError;
-
-using process::grpc::client::CallOptions;
 
 using testing::_;
 using testing::DoAll;
@@ -68,7 +67,7 @@ public:
 
   MOCK_METHOD3(Send, Status(ServerContext*, const Ping* ping, Pong* pong));
 
-  Try<client::Connection> startup(const Option<string>& address = None())
+  Try<Connection> startup(const Option<string>& address = None())
   {
     ServerBuilder builder;
 
@@ -84,8 +83,8 @@ public:
     }
 
     return address.isSome()
-      ? client::Connection(address.get())
-      : client::Connection(server->InProcessChannel(ChannelArguments()));
+      ? Connection(address.get())
+      : Connection(server->InProcessChannel(ChannelArguments()));
   }
 
   Try<Nothing> shutdown()
@@ -128,22 +127,22 @@ protected:
 TEST_F(GRPCClientTest, Success)
 {
   PingPongServer server;
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
   AWAIT_ASSERT_READY(pong);
   EXPECT_SOME(pong.get());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }
@@ -153,7 +152,7 @@ TEST_F(GRPCClientTest, Success)
 TEST_F(GRPCClientTest, ConcurrentRPCs)
 {
   PingPongServer server;
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
   shared_ptr<Promise<Nothing>> processed1(new Promise<Nothing>());
@@ -181,23 +180,23 @@ TEST_F(GRPCClientTest, ConcurrentRPCs)
       }),
       Return(Status::OK)));
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong1 = runtime.call(
+  Future<Try<Pong, StatusError>> pong1 = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
-  Future<Try<Pong, StatusError>> pong2 = runtime.call(
+  Future<Try<Pong, StatusError>> pong2 = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
-  Future<Try<Pong, StatusError>> pong3 = runtime.call(
+  Future<Try<Pong, StatusError>> pong3 = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
@@ -216,8 +215,8 @@ TEST_F(GRPCClientTest, ConcurrentRPCs)
   AWAIT_ASSERT_READY(pong3);
   EXPECT_SOME(pong3.get());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }
@@ -232,14 +231,14 @@ TEST_F(GRPCClientTest, StatusError)
   EXPECT_CALL(server, Send(_, _, _))
     .WillOnce(Return(Status::CANCELLED));
 
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
@@ -247,8 +246,8 @@ TEST_F(GRPCClientTest, StatusError)
   EXPECT_ERROR(pong.get());
   EXPECT_EQ(::grpc::CANCELLED, pong->error().status.error_code());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }
@@ -263,12 +262,12 @@ TEST_F_TEMP_DISABLED_ON_WINDOWS(GRPCClientTest, DiscardedBeforeServerStarted)
   EXPECT_CALL(server, Send(_, _, _))
     .Times(0);
 
-  client::Connection connection(server_address());
-  client::Runtime runtime;
+  Connection connection(server_address());
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection,
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
@@ -278,8 +277,8 @@ TEST_F_TEMP_DISABLED_ON_WINDOWS(GRPCClientTest, DiscardedBeforeServerStarted)
 
   AWAIT_EXPECT_DISCARDED(pong);
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }
@@ -302,14 +301,14 @@ TEST_F(GRPCClientTest, DiscardedWhenServerProcessing)
         }),
         Return(Status::OK)));
 
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
@@ -320,14 +319,14 @@ TEST_F(GRPCClientTest, DiscardedWhenServerProcessing)
 
   AWAIT_EXPECT_DISCARDED(pong);
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }
 
 
-// This test verifies that a gRPC future is set with an error when the runtime
+// This test verifies that a gRPC future is set with an error when the client
 // is shut down before the server responds.
 TEST_F(GRPCClientTest, ClientShutdown)
 {
@@ -344,21 +343,21 @@ TEST_F(GRPCClientTest, ClientShutdown)
         }),
         Return(Status::OK)));
 
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
   AWAIT_READY(processed->future());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   shutdown->set(Nothing());
 
@@ -374,17 +373,17 @@ TEST_F(GRPCClientTest, ClientShutdown)
 // to connect to the server.
 TEST_F(GRPCClientTest, ServerUnreachable)
 {
-  client::Connection connection("nosuchhost");
-  client::Runtime runtime;
+  Connection connection("nosuchhost");
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection,
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   AWAIT_ASSERT_READY(pong);
   EXPECT_ERROR(pong.get());
@@ -407,14 +406,14 @@ TEST_F(GRPCClientTest, ServerTimeout)
         }),
         Return(Status::OK)));
 
-  Try<client::Connection> connection = server.startup();
+  Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
 
-  client::Runtime runtime;
+  Client client;
 
-  Future<Try<Pong, StatusError>> pong = runtime.call(
+  Future<Try<Pong, StatusError>> pong = client.call(
       connection.get(),
-      GRPC_CLIENT_METHOD(PingPong, Send),
+      GRPC_CLIENT_RPC(PingPong, Send),
       Ping(),
       call_options());
 
@@ -424,8 +423,8 @@ TEST_F(GRPCClientTest, ServerTimeout)
 
   done->set(Nothing());
 
-  runtime.terminate();
-  AWAIT_ASSERT_READY(runtime.wait());
+  client.terminate();
+  AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
 }

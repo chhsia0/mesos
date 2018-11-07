@@ -18,69 +18,69 @@
 
 namespace process {
 namespace grpc {
-namespace client {
 
-void Runtime::terminate()
+namespace internal {
+
+static void completion_loop(
+    const UPID& pid, ::grpc::CompletionQueue* completion_queue)
 {
-  dispatch(data->pid, &RuntimeProcess::terminate);
+  void* tag;
+  bool ok = false;
+
+  while (completion_queue->Next(&tag, &ok)) {
+    // Obtain the tag as a `CompletionCallback` and dispatch it to the client
+    // process. The tag is then reclaimed in the process.
+    CompletionCallback* callback = reinterpret_cast<CompletionCallback*>(tag);
+    dispatch(pid, [=]{ std::move(*callback)(ok); delete callback; });
+  }
+
+  // Terminate self after all events are drained.
+  process::terminate(pid, false);
 }
 
 
-Future<Nothing> Runtime::wait()
-{
-  return data->terminated;
-}
+ClientProcess::ClientProcess()
+  : ProcessBase(ID::generate("__grpc_client__")) {}
 
 
-Runtime::RuntimeProcess::RuntimeProcess()
-  : ProcessBase(ID::generate("__grpc_client__")), terminating(false) {}
-
-
-Runtime::RuntimeProcess::~RuntimeProcess()
+ClientProcess::~ClientProcess()
 {
   CHECK(!looper);
 }
 
 
-void Runtime::RuntimeProcess::send(SendCallback callback)
+void ClientProcess::call(CallFunc func)
 {
-  std::move(callback)(terminating, &queue);
+  std::move(func)(!terminating, &completion_queue);
 }
 
 
-void Runtime::RuntimeProcess::receive(ReceiveCallback callback)
-{
-  std::move(callback)();
-}
-
-
-void Runtime::RuntimeProcess::terminate()
+void ClientProcess::terminate()
 {
   if (!terminating) {
     terminating = true;
-    queue.Shutdown();
+    completion_queue.Shutdown();
   }
 }
 
 
-Future<Nothing> Runtime::RuntimeProcess::wait()
+Future<Nothing> ClientProcess::wait()
 {
   return terminated.future();
 }
 
 
-void Runtime::RuntimeProcess::initialize()
+void ClientProcess::initialize()
 {
   // The looper thread can only be created here since it need to happen
-  // after `queue` is initialized.
-  CHECK(!looper);
-  looper.reset(new std::thread(&RuntimeProcess::loop, this));
+  // after `completion_queue` is initialized.
+  looper.reset(new std::thread(&completion_loop, self(), &completion_queue));
 }
 
 
-void Runtime::RuntimeProcess::finalize()
+void ClientProcess::finalize()
 {
-  CHECK(terminating) << "Runtime has not yet been terminated";
+  CHECK(terminating) << "Client has not yet been terminated";
 
   // NOTE: This is a blocking call. However, the thread is guaranteed
   // to be exiting, therefore the amount of blocking time should be
@@ -90,42 +90,33 @@ void Runtime::RuntimeProcess::finalize()
   terminated.set(Nothing());
 }
 
+} // namespace internal {
 
-void Runtime::RuntimeProcess::loop()
+
+void Client::terminate()
 {
-  void* tag;
-  bool ok;
-
-  while (queue.Next(&tag, &ok)) {
-    // Currently only unary RPCs are supported, so `ok` should always be true.
-    // See: https://grpc.io/grpc/cpp/classgrpc_1_1_completion_queue.html#a86d9810ced694e50f7987ac90b9f8c1a // NOLINT
-    CHECK(ok);
-
-    // Obtain the tag as a `ReceiveCallback` and dispatch it to the runtime
-    // process. The tag is then reclaimed here.
-    ReceiveCallback* callback = reinterpret_cast<ReceiveCallback*>(tag);
-    dispatch(self(), &RuntimeProcess::receive, std::move(*callback));
-    delete callback;
-  }
-
-  // Terminate self after all events are drained.
-  process::terminate(self(), false);
+  dispatch(data->pid, &internal::ClientProcess::terminate);
 }
 
 
-Runtime::Data::Data()
+Future<Nothing> Client::wait()
 {
-  RuntimeProcess* process = new RuntimeProcess();
+  return data->terminated;
+}
+
+
+Client::Data::Data()
+{
+  internal::ClientProcess* process = new internal::ClientProcess();
   terminated = process->wait();
   pid = spawn(process, true);
 }
 
 
-Runtime::Data::~Data()
+Client::Data::~Data()
 {
-  dispatch(pid, &RuntimeProcess::terminate);
+  dispatch(pid, &internal::ClientProcess::terminate);
 }
 
-} // namespace client {
 } // namespace grpc {
 } // namespace process {
