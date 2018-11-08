@@ -12,9 +12,14 @@
 
 #include <process/grpc.hpp>
 
+#include <process/defer.hpp>
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
 #include <process/process.hpp>
+
+using std::shared_ptr;
+using std::string;
+using std::unique_ptr;
 
 namespace process {
 namespace grpc {
@@ -90,6 +95,98 @@ void ClientProcess::finalize()
   terminated.set(Nothing());
 }
 
+
+ServerProcess::ServerProcess(
+    const string& _uri,
+    const shared_ptr<::grpc::ServerCredentials>& _credentials)
+  : ProcessBase(ID::generate("__grpc_server__")),
+    uri(_uri),
+    credentials(_credentials),
+    state(State::INITIALIZED) {}
+
+
+ServerProcess::ServerProcess()
+  : ProcessBase(ID::generate("__grpc_server__")),
+    state(State::INITIALIZED) {}
+
+
+ServerProcess::~ServerProcess()
+{
+  CHECK(!looper);
+}
+
+
+void ServerProcess::route(::grpc::Service* service, RouteFunc func)
+{
+  services.emplace_back(service);
+  handlers.emplace_back(std::move(func));
+}
+
+
+Future<Nothing> ServerProcess::run()
+{
+  ::grpc::ServerBuilder builder;
+
+  if (uri.isSome()) {
+    builder.AddListeningPort(uri.get(), credentials);
+  }
+
+  foreach (::grpc::Service* service, services) {
+    builder.RegisterService(service);
+  }
+
+  completion_queue = builder.AddCompletionQueue();
+  server = builder.BuildAndStart();
+
+  foreach (RouteFunc& func, handlers) {
+    std::move(func)(true, &services, completion_queue.get());
+  }
+
+  // The looper thread can only be created here since it need to happen
+  // after `completion_queue` is initialized.
+  looper.reset(
+      new std::thread(&completion_loop, self(), completion_queue.get()));
+
+  return state.transition<State::INITIALIZED, State::RUNNING>([this] {
+    return state.when<State::STOPPED>();
+  });
+}
+
+
+Future<Nothing> ServerProcess::stop()
+{
+  return state.transition<State::RUNNING, State::STOPPING>([this] {
+    server->Shutdown();
+    completion_queue->Shutdown();
+
+    return state.when<State::STOPPED>();
+  },
+  "Server must be started in order to be stopped");
+}
+
+
+Future<Connection> ServerProcess::getInProcessConnection()
+{
+  return state.when<State::RUNNING>()
+    .then(defer(self(), [this] {
+      CHECK(server);
+      return Connection(server->InProcessChannel(::grpc::ChannelArguments()));
+    }));
+}
+
+
+void ServerProcess::finalize()
+{
+  Try<Nothing> stopped = state.transition<State::STOPPING, State::STOPPED>();
+  CHECK_SOME(stopped) << "Server has not yet been stopped";
+
+  // NOTE: This is a blocking call. However, the thread is guaranteed
+  // to be exiting, therefore the amount of blocking time should be
+  // short (just like other syscalls we invoke).
+  looper->join();
+  looper.reset();
+}
+
 } // namespace internal {
 
 
@@ -116,6 +213,34 @@ Client::Data::Data()
 Client::Data::~Data()
 {
   dispatch(pid, &internal::ClientProcess::terminate);
+}
+
+
+Server::Server(
+    const string& uri,
+    const shared_ptr<::grpc::ServerCredentials>& credentials)
+  : pid(spawn(new internal::ServerProcess(uri, credentials), true)) {}
+
+
+Server::Server()
+  : pid(spawn(new internal::ServerProcess(), true)) {}
+
+
+Future<Nothing> Server::run()
+{
+  return dispatch(pid, &internal::ServerProcess::run);
+}
+
+
+Future<Nothing> Server::stop()
+{
+  return dispatch(pid, &internal::ServerProcess::stop);
+}
+
+
+Future<Connection> Server::getInProcessConnection()
+{
+  return dispatch(pid, &internal::ServerProcess::getInProcessConnection);
 }
 
 } // namespace grpc {

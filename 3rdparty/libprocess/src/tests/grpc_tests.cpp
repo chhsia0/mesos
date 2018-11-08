@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <chrono>
 #include <string>
 
 #include <gmock/gmock.h>
@@ -34,19 +35,13 @@ using std::shared_ptr;
 using std::string;
 using std::unique_ptr;
 
-using ::grpc::ChannelArguments;
-using ::grpc::InsecureServerCredentials;
-using ::grpc::Server;
-using ::grpc::ServerBuilder;
-using ::grpc::ServerContext;
-using ::grpc::Status;
-
 using process::Future;
 using process::Promise;
 
 using process::grpc::CallOptions;
 using process::grpc::Client;
 using process::grpc::Connection;
+using process::grpc::Server;
 using process::grpc::StatusError;
 
 using testing::_;
@@ -62,29 +57,32 @@ public:
   PingPongServer()
   {
     EXPECT_CALL(*this, Send(_, _, _))
-      .WillRepeatedly(Return(Status::OK));
+      .WillRepeatedly(Return(::grpc::Status::OK));
   }
 
-  MOCK_METHOD3(Send, Status(ServerContext*, const Ping* ping, Pong* pong));
+  MOCK_METHOD3(
+      Send,
+      ::grpc::Status(::grpc::ServerContext*, const Ping* ping, Pong* pong));
 
   Try<Connection> startup(const Option<string>& address = None())
   {
-    ServerBuilder builder;
+    ::grpc::ServerBuilder builder;
 
     if (address.isSome()) {
-      builder.AddListeningPort(address.get(), InsecureServerCredentials());
+      builder.AddListeningPort(
+          address.get(), ::grpc::InsecureServerCredentials());
     }
 
     builder.RegisterService(this);
 
     server = builder.BuildAndStart();
     if (!server) {
-      return Error("Unable to start a gRPC server.");
+      return Error("Unable to start a gRPC server");
     }
 
     return address.isSome()
       ? Connection(address.get())
-      : Connection(server->InProcessChannel(ChannelArguments()));
+      : Connection(server->InProcessChannel(::grpc::ChannelArguments()));
   }
 
   Try<Nothing> shutdown()
@@ -96,7 +94,35 @@ public:
   }
 
 private:
-  unique_ptr<Server> server;
+  unique_ptr<::grpc::Server> server;
+};
+
+
+class PingPongClient
+{
+public:
+  PingPongClient(const Connection& connection)
+    : stub(PingPong::NewStub(connection.channel)) {}
+
+  Try<Pong, StatusError> send(const Ping& ping)
+  {
+    Pong pong;
+
+    ::grpc::ClientContext context;
+    context.set_deadline(
+        std::chrono::system_clock::now() + std::chrono::milliseconds(100));
+
+    ::grpc::Status status = stub->Send(&context, ping, &pong);
+
+    if (!status.ok()) {
+      return StatusError(status);
+    }
+
+    return pong;
+  }
+
+private:
+  unique_ptr<PingPong::Stub> stub;
 };
 
 
@@ -166,19 +192,19 @@ TEST_F(GRPCClientTest, ConcurrentRPCs)
         processed1->set(Nothing());
         AWAIT_READY(pinged->future());
       }),
-      Return(Status::OK)))
+      Return(::grpc::Status::OK)))
     .WillOnce(DoAll(
       InvokeWithoutArgs([=] {
         processed2->set(Nothing());
         AWAIT_READY(pinged->future());
       }),
-      Return(Status::OK)))
+      Return(::grpc::Status::OK)))
     .WillOnce(DoAll(
       InvokeWithoutArgs([=] {
         processed3->set(Nothing());
         AWAIT_READY(pinged->future());
       }),
-      Return(Status::OK)));
+      Return(::grpc::Status::OK)));
 
   Client client;
 
@@ -229,7 +255,7 @@ TEST_F(GRPCClientTest, StatusError)
   PingPongServer server;
 
   EXPECT_CALL(server, Send(_, _, _))
-    .WillOnce(Return(Status::CANCELLED));
+    .WillOnce(Return(::grpc::Status::CANCELLED));
 
   Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
@@ -299,7 +325,7 @@ TEST_F(GRPCClientTest, DiscardedWhenServerProcessing)
           processed->set(Nothing());
           AWAIT_READY(discarded->future());
         }),
-        Return(Status::OK)));
+        Return(::grpc::Status::OK)));
 
   Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
@@ -341,7 +367,7 @@ TEST_F(GRPCClientTest, ClientShutdown)
           processed->set(Nothing());
           AWAIT_READY(shutdown->future());
         }),
-        Return(Status::OK)));
+        Return(::grpc::Status::OK)));
 
   Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
@@ -404,7 +430,7 @@ TEST_F(GRPCClientTest, ServerTimeout)
         InvokeWithoutArgs([=] {
           AWAIT_READY(done->future());
         }),
-        Return(Status::OK)));
+        Return(::grpc::Status::OK)));
 
   Try<Connection> connection = server.startup();
   ASSERT_SOME(connection);
@@ -427,6 +453,28 @@ TEST_F(GRPCClientTest, ServerTimeout)
   AWAIT_ASSERT_READY(client.wait());
 
   ASSERT_SOME(server.shutdown());
+}
+
+
+TEST(GRPCServerTest, Success)
+{
+  Server server;
+  Future<Connection> connection = server.getInProcessConnection();
+
+  server.route(
+      GRPC_SERVER_RPC(PingPong, Send),
+      [](const Ping&) { return Pong(); });
+
+  server.run();
+
+  AWAIT_READY(connection);
+
+  PingPongClient client(connection.get());
+
+  EXPECT_SOME(client.send(Ping()));
+  EXPECT_SOME(client.send(Ping()));
+
+  AWAIT_READY(server.stop());
 }
 
 } // namespace tests {

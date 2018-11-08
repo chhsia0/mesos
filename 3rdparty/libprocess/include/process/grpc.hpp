@@ -29,11 +29,13 @@
 #include <process/future.hpp>
 #include <process/pid.hpp>
 #include <process/process.hpp>
+#include <process/state_machine.hpp>
 
 #include <stout/duration.hpp>
 #include <stout/error.hpp>
 #include <stout/lambda.hpp>
 #include <stout/nothing.hpp>
+#include <stout/option.hpp>
 #include <stout/try.hpp>
 
 
@@ -44,11 +46,20 @@
 // call and return a `Future`.
 
 
-#define GRPC_CLIENT_RPC(service, rpc) \
-  process::grpc::internal::make_rpc<service>(&service::Stub::PrepareAsync##rpc)
+#define GRPC_CLIENT_RPC(service, rpc)         \
+  process::grpc::internal::make_rpc<service>( \
+      &service::Stub::PrepareAsync##rpc)
+
+#define GRPC_SERVER_RPC(service, rpc)         \
+  process::grpc::internal::make_rpc<service>( \
+      &service::AsyncService::Request##rpc)
 
 namespace process {
 namespace grpc {
+
+// Forward declarations;
+class Connection;
+
 
 namespace internal {
 
@@ -79,6 +90,54 @@ private:
 };
 
 
+class ServerProcess : public Process<ServerProcess>
+{
+public:
+  typedef std::function<void(
+      bool,
+      std::vector<::grpc::Service*>*,
+      ::grpc::ServerCompletionQueue*)> RouteFunc;
+
+  explicit ServerProcess(
+      const std::string& _uri,
+      const std::shared_ptr<::grpc::ServerCredentials>& _credentials);
+
+  // Used for testing purpose.
+  explicit ServerProcess();
+
+  ~ServerProcess() override;
+
+  void route(::grpc::Service* service, RouteFunc func);
+
+  Future<Nothing> run();
+  Future<Nothing> stop();
+
+  // Used for testing purpose.
+  Future<Connection> getInProcessConnection();
+
+private:
+  enum class State
+  {
+    INITIALIZED,
+    RUNNING,
+    STOPPING,
+    STOPPED
+  };
+
+  void finalize() override;
+
+  const Option<std::string> uri;
+  const std::shared_ptr<::grpc::ServerCredentials> credentials;
+
+  StateMachine<State> state;
+  std::vector<::grpc::Service*> services;
+  std::vector<RouteFunc> handlers;
+  std::unique_ptr<::grpc::Server> server;
+  std::unique_ptr<::grpc::ServerCompletionQueue> completion_queue;
+  std::unique_ptr<std::thread> looper;
+};
+
+
 template <typename Service, typename Method>
 struct RPC; // Undefined.
 
@@ -102,6 +161,32 @@ struct RPC<
         ::grpc::ClientContext*,
         const Request&,
         ::grpc::CompletionQueue*);
+};
+
+
+// Server unary RPC.
+template <typename Service, typename Request, typename Response>
+struct RPC<
+    Service,
+    void(Service::AsyncService::*)(
+        ::grpc::ServerContext*,
+        Request*,
+        ::grpc::ServerAsyncResponseWriter<Response>*,
+        ::grpc::CompletionQueue*,
+        ::grpc::ServerCompletionQueue*,
+        void*)>
+{
+  typedef Service service_type;
+  typedef Request request_type;
+  typedef Response response_type;
+
+  void(Service::AsyncService::*method)(
+      ::grpc::ServerContext*,
+      Request*,
+      ::grpc::ServerAsyncResponseWriter<Response>*,
+      ::grpc::CompletionQueue*,
+      ::grpc::ServerCompletionQueue*,
+      void*);
 };
 
 
@@ -323,6 +408,102 @@ private:
   };
 
   std::shared_ptr<Data> data;
+};
+
+
+class Server
+{
+public:
+  explicit Server(
+      const std::string& uri,
+      const std::shared_ptr<::grpc::ServerCredentials>& credentials =
+        ::grpc::InsecureServerCredentials());
+
+  // Used for testing purpose.
+  explicit Server();
+
+  // Movable but not copyable, not assignable.
+  Server(Server&& that) = default;
+  Server(const Server&) = delete;
+  Server& operator=(const Server&) = delete;
+
+  template <
+      typename RPC,
+      typename std::enable_if<
+          std::is_base_of<
+              ::grpc::Service,
+              typename RPC::service_type::AsyncService>::value,
+          int>::type = 0>
+  void route(
+      RPC&& rpc,
+      std::function<Future<typename RPC::response_type>(
+          const typename RPC::request_type&)>&& handler)
+  {
+    using AsyncService = typename RPC::service_type::AsyncService;
+    using Request = typename RPC::request_type;
+    using Response = typename RPC::response_type;
+    using Handler = std::function<Future<Response>(const Request&)>;
+
+    dispatch(
+        pid,
+        &internal::ServerProcess::route,
+        new AsyncService(),
+        lambda::partial([rpc](
+            const Handler& handler,
+            bool running,
+            std::vector<::grpc::Service*>* services,
+            ::grpc::ServerCompletionQueue* completion_queue) {
+          if (!running) {
+            return;
+          }
+
+          auto context = std::make_shared<::grpc::ServerContext>();
+          auto request = std::make_shared<Request>();
+          auto writer = std::make_shared<
+              ::grpc::ServerAsyncResponseWriter<Response>>(context.get());
+
+          void* tag = new internal::CompletionCallback(lambda::partial(
+              [context, request, writer](const Handler& handler, bool ok) {
+                handler(std::move(*request))
+                  .then([context, writer](const Response& response) {
+                    writer->Finish(
+                        response,
+                        ::grpc::Status::OK,
+                        new internal::CompletionCallback(
+                            [context, writer](bool) {}));
+
+                    return Nothing();
+                  });
+              },
+              handler,
+              lambda::_1));
+
+          (reinterpret_cast<AsyncService*>(services->back())->*(rpc.method))(
+              context.get(),
+              request.get(),
+              writer.get(),
+              completion_queue,
+              completion_queue,
+              tag);
+        }, std::move(handler), lambda::_1, lambda::_2, lambda::_3));
+  }
+
+  template <typename RPC, typename Handler>
+  void route(RPC&& rpc, Handler&& handler)
+  {
+    route(std::forward<RPC>(rpc), std::function<
+        Future<typename RPC::response_type>(const typename RPC::request_type&)>(
+            std::forward<Handler>(handler)));
+  }
+
+  Future<Nothing> run();
+  Future<Nothing> stop();
+
+  // Used for testing purpose.
+  Future<Connection> getInProcessConnection();
+
+private:
+  PID<internal::ServerProcess> pid;
 };
 
 } // namespace grpc {
