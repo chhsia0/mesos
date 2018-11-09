@@ -179,7 +179,7 @@ TEST_P(OperationReconciliationTest, PendingOperation)
   mesos.send(createCallAccept(
       frameworkId,
       offer,
-      {RESERVE(reservedResources, operationId.value())}));
+      {RESERVE(reservedResources, operationId)}));
 
   AWAIT_READY(applyOperationMessage);
 
