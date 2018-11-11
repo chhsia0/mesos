@@ -2651,50 +2651,30 @@ TEST_F(
 }
 
 
-// This test verifies that the storage local resource provider can
-// convert pre-existing CSI volumes into mount or block volumes.
-TEST_F(StorageLocalResourceProviderTest, ConvertPreExistingVolume)
+// This test verifies that the storage local resource provider can convert a
+// preprovisioned CSI volume into a mount volume with a given profile, and
+// return the space back to the storage pool after destroying the volume.
+TEST_F(StorageLocalResourceProviderTest, ConvertPreprovisionedVolume)
 {
-  Clock::pause();
+  const string profilesPath = path::join(sandbox.get(), "profiles.json");
+  ASSERT_SOME(os::write(profilesPath, createDiskProfileMapping("test")));
+  loadUriDiskProfileAdaptorModule(profilesPath);
 
-  setupResourceProviderConfig(Bytes(0), "volume1:2GB;volume2:2GB");
+  setupResourceProviderConfig(Bytes(0), "volume1:4GB");
 
-  master::Flags masterFlags = CreateMasterFlags();
-  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  Try<Owned<cluster::Master>> master = StartMaster();
   ASSERT_SOME(master);
 
   Owned<MasterDetector> detector = master.get()->createDetector();
 
   slave::Flags slaveFlags = CreateSlaveFlags();
+  slaveFlags.disk_profile_adaptor = URI_DISK_PROFILE_ADAPTOR_NAME;
 
-  // Since the local resource provider daemon is started after the agent
-  // is registered, it is guaranteed that the slave will send two
-  // `UpdateSlaveMessage`s, where the latter one contains resources from
-  // the storage local resource provider.
-  // NOTE: The order of the two `FUTURE_PROTOBUF`s is reversed because
-  // Google Mock will search the expectations in reverse order.
-  Future<UpdateSlaveMessage> updateSlave2 =
-    FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
-  Future<UpdateSlaveMessage> updateSlave1 =
-    FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
 
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
-
-  // Advance the clock to trigger agent registration and prevent retry.
-  Clock::advance(slaveFlags.registration_backoff_factor);
-
-  AWAIT_READY(updateSlave1);
-
-  // NOTE: We need to resume the clock so that the resource provider can
-  // periodically check if the CSI endpoint socket has been created by
-  // the plugin container, which runs in another Linux process.
-  Clock::resume();
-
-  AWAIT_READY(updateSlave2);
-  ASSERT_TRUE(updateSlave2->has_resource_providers());
-
-  Clock::pause();
 
   // Register a framework to exercise operations.
   FrameworkInfo framework = DEFAULT_FRAMEWORK_INFO;
@@ -2707,147 +2687,106 @@ TEST_F(StorageLocalResourceProviderTest, ConvertPreExistingVolume)
   EXPECT_CALL(sched, registered(&driver, _, _));
 
   // The framework is expected to see the following offers in sequence:
-  //   1. One containing two RAW pre-existing volumes before `CREATE_DISK`s.
-  //   2. One containing a MOUNT and a BLOCK disk resources after
-  //      `CREATE_DISK`s.
-  //   3. One containing two RAW pre-existing volumes after `DESTROY_DISK`s.
+  //   1. One containing a RAW preprovisioned volumes before `CREATE_DISK`.
+  //   2. One containing a MOUNT disk resources after `CREATE_DISK`.
+  //   3. One containing a RAW storage pool after `DESTROY_DISK`.
   //
   // We set up the expectations for these offers as the test progresses.
-  Future<vector<Offer>> rawDisksOffers;
-  Future<vector<Offer>> disksConvertedOffers;
-  Future<vector<Offer>> disksRevertedOffers;
+  Future<vector<Offer>> rawDiskOffers;
+  Future<vector<Offer>> diskCreatedOffers;
+  Future<vector<Offer>> diskDestroyedOffers;
 
-  // We are only interested in any pre-existing volume, which has an ID
-  // but no profile.
-  auto isPreExistingVolume = [](const Resource& r) {
+  // We use the following filter to filter offers that do not have
+  // wanted resources for 365 days (the maximum).
+  Filters declineFilters;
+  declineFilters.set_refuse_seconds(Days(365).secs());
+
+  // Decline offers that contain only the agent's default resources.
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(DeclineOffers(declineFilters));
+
+  auto isPreprovisionedDisk = [](const Resource& r) {
     return r.has_disk() &&
       r.disk().has_source() &&
+      r.disk().source().type() == Resource::DiskInfo::Source::RAW &&
       r.disk().source().has_id() &&
       !r.disk().source().has_profile();
   };
 
   EXPECT_CALL(sched, resourceOffers(&driver, OffersHaveAnyResource(
-      isPreExistingVolume)))
-    .WillOnce(FutureArg<1>(&rawDisksOffers));
+      isPreprovisionedDisk)))
+    .WillOnce(FutureArg<1>(&rawDiskOffers));
 
   driver.start();
 
-  AWAIT_READY(rawDisksOffers);
-  ASSERT_FALSE(rawDisksOffers->empty());
+  AWAIT_READY(rawDiskOffers);
+  ASSERT_FALSE(rawDiskOffers->empty());
 
-  vector<Resource> sources;
+  Resource source = *Resources(rawDiskOffers->at(0).resources())
+    .filter(isPreprovisionedDisk)
+    .begin();
 
-  foreach (const Resource& resource, rawDisksOffers->at(0).resources()) {
-    if (isPreExistingVolume(resource) &&
-        resource.disk().source().type() == Resource::DiskInfo::Source::RAW) {
-      sources.push_back(resource);
+  // Get the volume path of the preprovisioned CSI volume.
+  Option<string> volumePath;
+
+  foreach (const Label& label, source.disk().source().metadata().labels()) {
+    if (label.key() == "path") {
+      volumePath = label.value();
+      break;
     }
   }
 
-  ASSERT_EQ(2u, sources.size());
+  ASSERT_SOME(volumePath);
+  ASSERT_TRUE(os::exists(volumePath.get()));
 
-  // Create a volume and a block.
+  // Create a MOUNT disk of profile 'test'.
+  auto isMountDisk = [](const Resource& r, const string& profile) {
+    return r.has_disk() &&
+      r.disk().has_source() &&
+      r.disk().source().type() == Resource::DiskInfo::Source::MOUNT &&
+      r.disk().source().has_id() &&
+      r.disk().source().has_profile() &&
+      r.disk().source().profile() == profile;
+  };
+
   EXPECT_CALL(sched, resourceOffers(&driver, OffersHaveAnyResource(
-      isPreExistingVolume)))
-    .WillOnce(FutureArg<1>(&disksConvertedOffers));
-
-  // NOTE: The order of the two `FUTURE_PROTOBUF`s is reversed because
-  // Google Mock will search the expectations in reverse order.
-  Future<UpdateOperationStatusMessage> createBlockStatusUpdate =
-    FUTURE_PROTOBUF(UpdateOperationStatusMessage(), _, _);
-  Future<UpdateOperationStatusMessage> createVolumeStatusUpdate =
-    FUTURE_PROTOBUF(UpdateOperationStatusMessage(), _, _);
+      std::bind(isMountDisk, lambda::_1, "test"))))
+    .WillOnce(FutureArg<1>(&diskCreatedOffers));
 
   driver.acceptOffers(
-      {rawDisksOffers->at(0).id()},
-      {CREATE_DISK(sources.at(0), Resource::DiskInfo::Source::MOUNT, None()),
-       CREATE_DISK(sources.at(1), Resource::DiskInfo::Source::BLOCK, None())});
+      {rawDiskOffers->at(0).id()},
+      {CREATE_DISK(source, Resource::DiskInfo::Source::MOUNT, "test")});
 
-  AWAIT_READY(createVolumeStatusUpdate);
-  AWAIT_READY(createBlockStatusUpdate);
+  AWAIT_READY(diskCreatedOffers);
+  ASSERT_FALSE(diskCreatedOffers->empty());
 
-  // Advance the clock to trigger another allocation.
-  Clock::advance(masterFlags.allocation_interval);
+  Resource created = *Resources(diskCreatedOffers->at(0).resources())
+      .filter(std::bind(isMountDisk, lambda::_1, "test"))
+      .begin();
 
-  AWAIT_READY(disksConvertedOffers);
-  ASSERT_FALSE(disksConvertedOffers->empty());
+  // Destroy the created disk.
+  auto isStoragePool = [](const Resource& r, const string& profile) {
+    return r.has_disk() &&
+      r.disk().has_source() &&
+      r.disk().source().type() == Resource::DiskInfo::Source::RAW &&
+      !r.disk().source().has_id() &&
+      r.disk().source().has_profile() &&
+      r.disk().source().profile() == profile;
+  };
 
-  Option<Resource> volume;
-  Option<Resource> block;
-
-  foreach (const Resource& resource, disksConvertedOffers->at(0).resources()) {
-    if (isPreExistingVolume(resource)) {
-      if (resource.disk().source().type() ==
-            Resource::DiskInfo::Source::MOUNT) {
-        volume = resource;
-      } else if (resource.disk().source().type() ==
-                   Resource::DiskInfo::Source::BLOCK) {
-        block = resource;
-      }
-    }
-  }
-
-  ASSERT_SOME(volume);
-  ASSERT_TRUE(volume->disk().source().has_mount());
-  ASSERT_TRUE(volume->disk().source().mount().has_root());
-  EXPECT_FALSE(path::absolute(volume->disk().source().mount().root()));
-
-  ASSERT_SOME(block);
-
-  // Destroy the created volume.
   EXPECT_CALL(sched, resourceOffers(&driver, OffersHaveAnyResource(
-      isPreExistingVolume)))
-    .WillOnce(FutureArg<1>(&disksRevertedOffers));
-
-  // NOTE: The order of the two `FUTURE_PROTOBUF`s is reversed because
-  // Google Mock will search the expectations in reverse order.
-  Future<UpdateOperationStatusMessage> destroyBlockStatusUpdate =
-    FUTURE_PROTOBUF(UpdateOperationStatusMessage(), _, _);
-  Future<UpdateOperationStatusMessage> destroyVolumeStatusUpdate =
-    FUTURE_PROTOBUF(UpdateOperationStatusMessage(), _, _);
+      std::bind(isStoragePool, lambda::_1, "test"))))
+    .WillOnce(FutureArg<1>(&diskDestroyedOffers));
 
   driver.acceptOffers(
-      {disksConvertedOffers->at(0).id()},
-      {DESTROY_DISK(volume.get()),
-       DESTROY_DISK(block.get())});
+      {diskCreatedOffers->at(0).id()},
+      {DESTROY_DISK(created)});
 
-  AWAIT_READY(destroyVolumeStatusUpdate);
-  AWAIT_READY(destroyBlockStatusUpdate);
+  AWAIT_READY(diskDestroyedOffers);
+  ASSERT_FALSE(diskDestroyedOffers->empty());
 
-  // Advance the clock to trigger another allocation.
-  Clock::advance(masterFlags.allocation_interval);
-
-  AWAIT_READY(disksRevertedOffers);
-  ASSERT_FALSE(disksRevertedOffers->empty());
-
-  vector<Resource> destroyed;
-
-  foreach (const Resource& resource, disksRevertedOffers->at(0).resources()) {
-    if (isPreExistingVolume(resource) &&
-        resource.disk().source().type() == Resource::DiskInfo::Source::RAW) {
-      destroyed.push_back(resource);
-    }
-  }
-
-  ASSERT_EQ(2u, destroyed.size());
-
-  foreach (const Resource& resource, destroyed) {
-    ASSERT_FALSE(resource.disk().source().has_mount());
-    ASSERT_TRUE(resource.disk().source().has_metadata());
-
-    // Check if the volume is not deleted by the test CSI plugin.
-    Option<string> volumePath;
-
-    foreach (const Label& label, resource.disk().source().metadata().labels()) {
-      if (label.key() == "path") {
-        volumePath = label.value();
-        break;
-      }
-    }
-
-    ASSERT_SOME(volumePath);
-    EXPECT_TRUE(os::exists(volumePath.get()));
-  }
+  // Check if the volume is deleted by the test CSI plugin.
+  EXPECT_FALSE(os::exists(volumePath.get()));
 }
 
 
