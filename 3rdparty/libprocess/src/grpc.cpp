@@ -116,10 +116,50 @@ ServerProcess::~ServerProcess()
 }
 
 
-void ServerProcess::route(::grpc::Service* service, RouteFunc func)
+Future<Nothing> ServerProcess::route(
+    const std::string& service_name,
+    const std::string& rpc_name,
+    SetupFunc&& setup,
+    ReceiveFunc&& receive,
+    SendFunc&& send)
 {
-  services.emplace_back(service);
-  handlers.emplace_back(std::move(func));
+  if (!state.is<State::INITIALIZED>()) {
+    return Failure("Server has already been started");
+  }
+
+  if (endpoints[service_name].routing.contains(rpc_name)) {
+    return Failure("Route already exists");
+  }
+
+  setup(&endpoints[service_name].service);
+
+  return endpoints[service_name].routing[rpc_name] =
+    state.when<State::RUNNING>()
+    .then(lambda::partial(
+        [this](ReceiveFunc&& receive, SendFunc&& send) {
+          return loop(
+              self(),
+              lambda::partial(
+                  [this](ReceiveFunc& receive) {
+                    return state.is<State::RUNNING>()
+                      ? receive(&services, completion_queue.get())
+                      : Nothing();
+                  },
+                  std::move(receive)),
+              lambda::partial(
+                  [this](SendFunc& send, const Nothing&)
+                      -> Future<ControlFlow<Nothing>> {
+                    if (!state.is<State::RUNNING>()) {
+                      return Break();
+                    }
+
+                    return send().then([] { return Continue(); });
+                  },
+                  std::move(send),
+                  lambda::_1));
+        },
+        std::move(receive),
+        std::move(send)));
 }
 
 

@@ -33,6 +33,7 @@
 
 #include <stout/duration.hpp>
 #include <stout/error.hpp>
+#include <stout/hashmap.hpp>
 #include <stout/lambda.hpp>
 #include <stout/nothing.hpp>
 #include <stout/option.hpp>
@@ -93,10 +94,10 @@ private:
 class ServerProcess : public Process<ServerProcess>
 {
 public:
-  typedef std::function<void(
-      bool,
-      std::vector<::grpc::Service*>*,
-      ::grpc::ServerCompletionQueue*)> RouteFunc;
+  typedef std::function<void(std::unique_ptr<::grpc::Service>*)> SetupFunc;
+  typedef std::function<Future<Nothing>()> SendFunc;
+  typedef std::function<Future<SendFunc>(
+      ::grpc::Service*, ::grpc::ServerCompletionQueue*)> ReceiveFunc;
 
   explicit ServerProcess(
       const std::string& _uri,
@@ -107,7 +108,12 @@ public:
 
   ~ServerProcess() override;
 
-  void route(::grpc::Service* service, RouteFunc func);
+  Future<Nothing> route(
+      const std::string& service_name,
+      const std::string& rpc_name,
+      SetupFunc&& setup,
+      ReceiveFunc&& receive,
+      SendFunc&& send);
 
   Future<Nothing> run();
   Future<Nothing> stop();
@@ -124,14 +130,19 @@ private:
     STOPPED
   };
 
+  struct Endpoints
+  {
+    std::unique_ptr<::grpc::Service> service;
+    hashmap<std::string, Future<Nothing>> routing;
+  };
+
   void finalize() override;
 
   const Option<std::string> uri;
   const std::shared_ptr<::grpc::ServerCredentials> credentials;
 
   StateMachine<State> state;
-  std::vector<::grpc::Service*> services;
-  std::vector<RouteFunc> handlers;
+  hashmap<std::string, Endpoints> endpoints;
   std::unique_ptr<::grpc::Server> server;
   std::unique_ptr<::grpc::ServerCompletionQueue> completion_queue;
   std::unique_ptr<std::thread> looper;
@@ -434,7 +445,7 @@ public:
               ::grpc::Service,
               typename RPC::service_type::AsyncService>::value,
           int>::type = 0>
-  void route(
+  Future<Nothing> route(
       RPC&& rpc,
       std::function<Future<typename RPC::response_type>(
           const typename RPC::request_type&)>&& handler)
@@ -444,54 +455,90 @@ public:
     using Response = typename RPC::response_type;
     using Handler = std::function<Future<Response>(const Request&)>;
 
-    dispatch(
+    return dispatch(
         pid,
         &internal::ServerProcess::route,
-        new AsyncService(),
-        lambda::partial([rpc](
-            const Handler& handler,
-            bool running,
-            std::vector<::grpc::Service*>* services,
-            ::grpc::ServerCompletionQueue* completion_queue) {
-          if (!running) {
-            return;
+        RPC::service_type::service_full_name(),
+        RPC::name(),
+        [rpc](std::unique_ptr<::grpc::Service>* service) {
+          if (!*service) {
+            service->reset(new AsyncService());
           }
+
+          CHECK_NOTNULL(dynamic_cast<AsyncService*>(service->get()));
+          return Nothing();
+        },
+        [rpc](
+            ::grpc::Service* services,
+            ::grpc::ServerCompletionQueue* completion_queue) {
+          auto promise = std::make_shared<Promise<SendFunc>>();
+          Future<SendFunc> future = promise->future();
 
           auto context = std::make_shared<::grpc::ServerContext>();
           auto request = std::make_shared<Request>();
-          auto writer = std::make_shared<
-              ::grpc::ServerAsyncResponseWriter<Response>>(context.get());
+          auto writer =
+            std::make_shared<::grpc::ServerAsyncResponseWriter<Response>>(
+                context.get());
 
-          void* tag = new internal::CompletionCallback(lambda::partial(
-              [context, request, writer](const Handler& handler, bool ok) {
-                handler(std::move(*request))
-                  .then([context, writer](const Response& response) {
-                    writer->Finish(
-                        response,
-                        ::grpc::Status::OK,
-                        new internal::CompletionCallback(
-                            [context, writer](bool) {}));
+          void* tag = new internal::CompletionCallback(
+              [context, promise, request, writer](bool ok) {
+                if (!ok) {
+                  promise->fail("Server has been shutdown");
+                  return;
+                }
+              }
+        },
+        lambda::partial(
+            [rpc](
+                const Handler& handler,
+                bool running,
+                std::vector<::grpc::Service*>* services,
+                ::grpc::ServerCompletionQueue* completion_queue) {
+              if (!running) {
+                return;
+              }
 
-                    return Nothing();
-                  });
-              },
-              handler,
-              lambda::_1));
+              auto context = std::make_shared<::grpc::ServerContext>();
+              auto request = std::make_shared<Request>();
+              auto writer =
+                std::make_shared<::grpc::ServerAsyncResponseWriter<Response>>(
+                    context.get());
 
-          (reinterpret_cast<AsyncService*>(services->back())->*(rpc.method))(
-              context.get(),
-              request.get(),
-              writer.get(),
-              completion_queue,
-              completion_queue,
-              tag);
-        }, std::move(handler), lambda::_1, lambda::_2, lambda::_3));
+              void* tag = new internal::CompletionCallback(lambda::partial(
+                  [context, request, writer](const Handler& handler, bool ok) {
+                    handler(std::move(*request))
+                      .then([context, writer](const Response& response) {
+                        writer->Finish(
+                            response,
+                            ::grpc::Status::OK,
+                            new internal::CompletionCallback(
+                                [context, writer](bool) {}));
+
+                        return Nothing();
+                      });
+                  },
+                  handler,
+                  lambda::_1));
+
+              (reinterpret_cast<AsyncService*>(services->back())
+                 ->*(rpc.method))(
+                  context.get(),
+                  request.get(),
+                  writer.get(),
+                  completion_queue,
+                  completion_queue,
+                  tag);
+            },
+            std::move(handler),
+            lambda::_1,
+            lambda::_2,
+            lambda::_3));
   }
 
   template <typename RPC, typename Handler>
-  void route(RPC&& rpc, Handler&& handler)
+  Future<Nothing> route(RPC&& rpc, Handler&& handler)
   {
-    route(std::forward<RPC>(rpc), std::function<
+    return route(std::forward<RPC>(rpc), std::function<
         Future<typename RPC::response_type>(const typename RPC::request_type&)>(
             std::forward<Handler>(handler)));
   }
