@@ -261,7 +261,7 @@ LDADD += -lzookeeper_mt
 endif
 
 # Set up include paths for the protocol buffer compiler.
-PROTOCFLAGS = -I$(top_srcdir)/include -I$(srcdir) -I../$(CSI)
+PROTOCFLAGS = -I$(top_srcdir)/include -I$(srcdir) -I$(top_srcdir)/$(CSI)
 
 # TODO(josephw): This is a temporary include directory which points to the
 # generated CSI protocol buffer code. Derivative protocol buffers need
@@ -479,11 +479,11 @@ CLEANFILES +=								\
 %.pb.cc %.pb.h: %.proto
 	$(PROTOC) $(PROTOCFLAGS) --cpp_out=. $^
 
-../include/csi/%.pb.cc ../include/csi/%.pb.h: ../$(CSI)/%.proto
+../include/csi/%.pb.cc ../include/csi/%.pb.h: $(top_srcdir)/$(CSI)/%.proto
 	$(MKDIR_P) $(@D)
 	$(PROTOC) $(PROTOCFLAGS) --cpp_out=../include/csi $^
 
-../include/csi/%.grpc.pb.cc ../include/csi/%.grpc.pb.h: ../$(CSI)/%.proto
+../include/csi/%.grpc.pb.cc ../include/csi/%.grpc.pb.h: $(top_srcdir)/$(CSI)/%.proto
 	$(MKDIR_P) $(@D)
 	$(PROTOC) $(PROTOCFLAGS) --grpc_out=../include/csi $^		\
 	          --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN)
