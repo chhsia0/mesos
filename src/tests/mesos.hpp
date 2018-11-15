@@ -1298,17 +1298,17 @@ inline TDomainInfo createDomainInfo(
 
 
 // Helpers for creating operations.
-template <typename TResources, typename TOffer>
+template <typename TResources, typename TOperationID, typename TOffer>
 inline typename TOffer::Operation RESERVE(
     const TResources& resources,
-    const Option<std::string> operationId = None())
+    const Option<TOperationID>& operationId = None())
 {
   typename TOffer::Operation operation;
   operation.set_type(TOffer::Operation::RESERVE);
   operation.mutable_reserve()->mutable_resources()->CopyFrom(resources);
 
   if (operationId.isSome()) {
-    operation.mutable_id()->set_value(operationId.get());
+    operation.mutable_id()->CopyFrom(operationId.get());
   }
 
   return operation;
@@ -1398,12 +1398,16 @@ inline typename TOffer::Operation LAUNCH_GROUP(
 }
 
 
-template <typename TResource, typename TTargetType, typename TOffer>
+template <
+    typename TResource,
+    typename TTargetType,
+    typename TOperationID,
+    typename TOffer>
 inline typename TOffer::Operation CREATE_DISK(
     const TResource& source,
     const TTargetType& targetType,
     const Option<std::string>& targetProfile = None(),
-    const Option<std::string>& operationId = None())
+    const Option<TOperationID>& operationId = None())
 {
   typename TOffer::Operation operation;
   operation.set_type(TOffer::Operation::CREATE_DISK);
@@ -1415,7 +1419,7 @@ inline typename TOffer::Operation CREATE_DISK(
   }
 
   if (operationId.isSome()) {
-    operation.mutable_id()->set_value(operationId.get());
+    operation.mutable_id()->CopyFrom(operationId.get());
   }
 
   return operation;
@@ -1735,7 +1739,8 @@ inline DomainInfo createDomainInfo(Args&&... args)
 template <typename... Args>
 inline Offer::Operation RESERVE(Args&&... args)
 {
-  return common::RESERVE<Resources, Offer>(std::forward<Args>(args)...);
+  return common::RESERVE<Resources, OperationID, Offer>(
+      std::forward<Args>(args)...);
 }
 
 
@@ -1792,9 +1797,9 @@ inline Offer::Operation LAUNCH_GROUP(Args&&... args)
 template <typename... Args>
 inline Offer::Operation CREATE_DISK(Args&&... args)
 {
-  return common::CREATE_DISK<Resource,
-                             Resource::DiskInfo::Source::Type,
-                             Offer>(std::forward<Args>(args)...);
+  return common::
+    CREATE_DISK<Resource, Resource::DiskInfo::Source::Type, OperationID, Offer>(
+        std::forward<Args>(args)...);
 }
 
 
@@ -2029,8 +2034,10 @@ inline hashmap<std::string, double> convertToHashmap(Args&&... args)
 template <typename... Args>
 inline mesos::v1::Offer::Operation RESERVE(Args&&... args)
 {
-  return common::RESERVE<mesos::v1::Resources, mesos::v1::Offer>(
-      std::forward<Args>(args)...);
+  return common::RESERVE<
+      mesos::v1::Resources,
+      mesos::v1::OperationID,
+      mesos::v1::Offer>(std::forward<Args>(args)...);
 }
 
 
@@ -2095,10 +2102,11 @@ inline mesos::v1::Offer::Operation LAUNCH_GROUP(Args&&... args)
 template <typename... Args>
 inline mesos::v1::Offer::Operation CREATE_DISK(Args&&... args)
 {
-  return common::CREATE_DISK<mesos::v1::Resource,
-                             mesos::v1::Resource::DiskInfo::Source::Type,
-                             mesos::v1::Offer>(
-      std::forward<Args>(args)...);
+  return common::CREATE_DISK<
+      mesos::v1::Resource,
+      mesos::v1::Resource::DiskInfo::Source::Type,
+      mesos::v1::OperationID,
+      mesos::v1::Offer>(std::forward<Args>(args)...);
 }
 
 
