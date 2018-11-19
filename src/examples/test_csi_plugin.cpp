@@ -326,12 +326,33 @@ Status TestCSIPlugin::CreateVolume(
   }
 
   if (request->name().find_first_of(os::PATH_SEPARATOR) != string::npos) {
-    return Status(grpc::INVALID_ARGUMENT, "Volume name cannot contain '/'");
+    return Status(
+        grpc::INVALID_ARGUMENT,
+        string("Volume name cannot contain '") + os::PATH_SEPARATOR + "'");
   }
 
-  bool alreadyExists = volumes.contains(request->name());
+  foreach (const csi::v0::VolumeCapability& capability,
+           request->volume_capabilities()) {
+    if (capability != defaultVolumeCapability) {
+      return Status(grpc::INVALID_ARGUMENT, "Unsupported volume capabilities");
+    }
+  }
 
-  if (!alreadyExists) {
+  if (volumes.contains(request->name())) {
+    const VolumeInfo volumeInfo = volumes.at(request->name());
+
+    if (request->has_capacity_range()) {
+      const csi::v0::CapacityRange& range = request->capacity_range();
+
+      if (range.limit_bytes() != 0 &&
+          volumeInfo.size > Bytes(range.limit_bytes())) {
+        return Status(grpc::ALREADY_EXISTS, "Cannot satisfy 'limit_bytes'");
+      } else if (range.required_bytes() != 0 &&
+                 volumeInfo.size < Bytes(range.required_bytes())) {
+        return Status(grpc::ALREADY_EXISTS, "Cannot satisfy 'required_bytes'");
+      }
+    }
+  } else {
     if (availableCapacity == Bytes(0)) {
       return Status(grpc::OUT_OF_RANGE, "Insufficient capacity");
     }
@@ -344,13 +365,12 @@ Status TestCSIPlugin::CreateVolume(
       const csi::v0::CapacityRange& range = request->capacity_range();
 
       // The highest we can pick.
-      Bytes limit = availableCapacity;
-      if (range.limit_bytes() != 0) {
-        limit = min(availableCapacity, Bytes(range.limit_bytes()));
-      }
+      Bytes limit = range.limit_bytes() != 0
+        ? min(availableCapacity, Bytes(range.limit_bytes()))
+        : availableCapacity;
 
       if (range.required_bytes() != 0 &&
-          static_cast<size_t>(range.required_bytes()) > limit.bytes()) {
+          limit < Bytes(range.required_bytes())) {
         return Status(grpc::OUT_OF_RANGE, "Cannot satisfy 'required_bytes'");
       }
 
@@ -370,7 +390,7 @@ Status TestCSIPlugin::CreateVolume(
 
     CHECK_GE(availableCapacity, volumeInfo.size);
     availableCapacity -= volumeInfo.size;
-    volumes.put(volumeInfo.id, volumeInfo);
+    volumes.put(volumeInfo.id, std::move(volumeInfo));
   }
 
   const VolumeInfo& volumeInfo = volumes.at(request->name());
@@ -379,12 +399,6 @@ Status TestCSIPlugin::CreateVolume(
   response->mutable_volume()->set_capacity_bytes(volumeInfo.size.bytes());
   (*response->mutable_volume()->mutable_attributes())["path"] =
     getVolumePath(volumeInfo);
-
-  if (alreadyExists) {
-    return Status(
-        grpc::ALREADY_EXISTS,
-        "Volume with name '" + request->name() + "' already exists");
-  }
 
   return Status::OK;
 }
