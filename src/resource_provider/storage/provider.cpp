@@ -1401,7 +1401,8 @@ ResourceConversion StorageLocalResourceProviderProcess::reconcileResources(
       toRemove += unconverted;
     } else {
       LOG(WARNING)
-        << "Missing converted resource '" << resource
+        << "Missing converted resource '" << JSON::protobuf(resource)
+        << "' from '" << JSON::protobuf<Resource>(toAdd)
         << "'. This might cause further operations to fail.";
     }
   }
