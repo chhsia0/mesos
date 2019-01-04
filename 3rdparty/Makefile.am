@@ -466,8 +466,13 @@ $(LIB_GRPC): $(GRPC)-build-stamp
 # flags, which will be overwritten by the command line. See:
 # https://www.gnu.org/software/make/manual/html_node/Target_002dspecific.html
 #
-# We use EXTRA_CPPFLAGS to pass `-Wno-error`, because that one needs to be
+# NOTE: We use EXTRA_CPPFLAGS to pass `-Wno-error`, because that one needs to be
 # appended and not prepended to the constructed flags.
+#
+# NOTE: We compile gRPC with its embedded c-ares library to avoid a link error
+# because Mesos is not aware of the library; see MESOS-9505. If bundle c-ares
+# to resolve MESOS-9338 in the future, we should remove `HAS_SYSTEM_CARES` below
+# and set up proper include and linker flags instead.
 $(GRPC)-build-stamp: $(GRPC)-stamp			\
                      $(PROTOBUF)-build-stamp
 	cd $(GRPC) &&					\
@@ -490,7 +495,9 @@ $(GRPC)-build-stamp: $(GRPC)-stamp			\
 	             $(LDFLAGS)"			\
 	    LDLIBS="$(LDLIBS)"				\
 	    HAS_PKG_CONFIG=false			\
-	    NO_PROTOC=false				\
+	    HAS_SYSTEM_CARES=false			\
+	    HAS_PROTOC=true				\
+	    HAS_VALID_PROTOC=true			\
 	    PROTOC="$(PROTOC)"
 	touch $@
 
