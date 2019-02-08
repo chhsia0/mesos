@@ -27,11 +27,13 @@
 
 #include <process/clock.hpp>
 #include <process/collect.hpp>
+#include <process/dispatch.hpp>
 #include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/grpc.hpp>
 #include <process/gtest.hpp>
 #include <process/gmock.hpp>
+#include <process/process.hpp>
 #include <process/protobuf.hpp>
 #include <process/queue.hpp>
 #include <process/reap.hpp>
@@ -85,6 +87,7 @@ using mesos::master::detector::MasterDetector;
 using mesos::master::detector::StandaloneMasterDetector;
 
 using process::Clock;
+using process::DispatchContext;
 using process::Future;
 using process::Owned;
 using process::Promise;
@@ -3948,6 +3951,234 @@ TEST_P(
 
   // Check if the MOUNT disk still exists and not being cleaned up.
   EXPECT_TRUE(os::exists(filePath));
+}
+
+
+// This test verifies that the storage local resource provider will not able to
+// recover if it cannot republish a persistent volume that has been published
+// before.
+//
+// To accomplish this:
+//   1. Creates a MOUNT disk from a RAW disk resource.
+//   2. Creates a persistent volume on the MOUNT disk then launch a task to
+//      write a file into it.
+//   3. Simulates an agent reboot.
+//   4. Returns `UNIMPLEMENTED` for the `NodePublishVolume` call after reboot.
+//      The resource provider will be disconnected, and there will be no offer
+//      containing any resource from the resource provider.
+TEST_P(StorageLocalResourceProviderTest, RecoverPublishedPersistentVolumeFailed)
+{
+  Clock::pause();
+
+  const string profilesPath = path::join(sandbox.get(), "profiles.json");
+
+  ASSERT_SOME(
+      os::write(profilesPath, createDiskProfileMapping({{"test", None()}})));
+
+  loadUriDiskProfileAdaptorModule(profilesPath);
+
+  const string mockCsiEndpoint =
+    "unix://" + path::join(sandbox.get(), "mock_csi.sock");
+
+  MockCSIPlugin plugin;
+  ASSERT_SOME(plugin.startup(mockCsiEndpoint));
+
+  EXPECT_CALL(plugin, NodePublishVolume(_, _, _))
+    .WillOnce(Return(grpc::Status::OK))
+    .WillOnce(Return(grpc::Status(grpc::UNIMPLEMENTED, "")));
+
+  setupResourceProviderConfig(Bytes(0), None(), None(), mockCsiEndpoint);
+
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  slave::Flags slaveFlags = CreateSlaveFlags();
+  slaveFlags.disk_profile_adaptor = URI_DISK_PROFILE_ADAPTOR_NAME;
+
+  // Since the local resource provider daemon is started after the agent
+  // is registered, it is guaranteed that the slave will send two
+  // `UpdateSlaveMessage`s, where the latter one contains resources from
+  // the storage local resource provider.
+  //
+  // NOTE: The order of the two `FUTURE_PROTOBUF`s is reversed because
+  // Google Mock will search the expectations in reverse order.
+  Future<UpdateSlaveMessage> updateSlave2 =
+    FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
+  Future<UpdateSlaveMessage> updateSlave1 =
+    FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
+
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  // Advance the clock to trigger agent registration.
+  Clock::advance(slaveFlags.registration_backoff_factor);
+
+  AWAIT_READY(updateSlave1);
+
+  // NOTE: We need to resume the clock so that the resource provider can
+  // periodically check if the CSI endpoint socket has been created by
+  // the plugin container, which runs in another Linux process.
+  Clock::resume();
+
+  AWAIT_READY(updateSlave2);
+  ASSERT_TRUE(updateSlave2->has_resource_providers());
+  ASSERT_EQ(1, updateSlave2->resource_providers().providers_size());
+
+  Clock::pause();
+
+  // Register a framework to exercise operations.
+  FrameworkInfo framework = DEFAULT_FRAMEWORK_INFO;
+  framework.set_roles(0, "storage");
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, framework, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  EXPECT_CALL(sched, registered(&driver, _, _));
+
+  // Decline unwanted offers. The master can send such offers before the
+  // resource provider receives profile updates.
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(DeclineOffers());
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, OffersHaveAnyResource(
+      std::bind(isStoragePool<Resource>, lambda::_1, "test"))))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  // NOTE: If the framework has not declined an unwanted offer yet when the
+  // resource provider reports its RAW resources, the new allocation triggered
+  // by this update won't generate an allocatable offer due to no CPU and memory
+  // resources. So we first settle the clock to ensure that the unwanted offer
+  // has been declined, then advance the clock to trigger another allocation.
+  Clock::settle();
+  Clock::advance(masterFlags.allocation_interval);
+
+  AWAIT_READY(offers);
+  ASSERT_EQ(1u, offers->size());
+
+  Offer offer = offers->at(0);
+
+  // Create a MOUNT disk.
+  Future<UpdateOperationStatusMessage> createDiskOperationStatus =
+    FUTURE_PROTOBUF(UpdateOperationStatusMessage(), _, _);
+
+  Resource raw = *Resources(offer.resources())
+    .filter(std::bind(isStoragePool<Resource>, lambda::_1, "test"))
+    .begin();
+
+  EXPECT_CALL(sched, resourceOffers(&driver, OffersHaveAnyResource(
+      std::bind(isMountDisk<Resource>, lambda::_1, "test"))))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.acceptOffers(
+      {offer.id()}, {CREATE_DISK(raw, Resource::DiskInfo::Source::MOUNT)});
+
+  AWAIT_READY(createDiskOperationStatus);
+  EXPECT_EQ(OPERATION_FINISHED, createDiskOperationStatus->status().state());
+
+  // Advance the clock to trigger a batch allocation.
+  Clock::advance(masterFlags.allocation_interval);
+
+  AWAIT_READY(offers);
+  ASSERT_EQ(1u, offers->size());
+
+  offer = offers->at(0);
+
+  Resource created = *Resources(offer.resources())
+    .filter(std::bind(isMountDisk<Resource>, lambda::_1, "test"))
+    .begin();
+
+  // Create a persistent MOUNT volume then launch a task to write a file.
+  Resource persistentVolume = created;
+  persistentVolume.mutable_disk()->mutable_persistence()
+    ->set_id(id::UUID::random().toString());
+  persistentVolume.mutable_disk()->mutable_persistence()
+    ->set_principal(framework.principal());
+  persistentVolume.mutable_disk()->mutable_volume()
+    ->set_container_path("volume");
+  persistentVolume.mutable_disk()->mutable_volume()->set_mode(Volume::RW);
+
+  Future<Nothing> taskFinished;
+  EXPECT_CALL(sched, statusUpdate(&driver, TaskStatusStateEq(TASK_STARTING)));
+  EXPECT_CALL(sched, statusUpdate(&driver, TaskStatusStateEq(TASK_RUNNING)));
+  EXPECT_CALL(sched, statusUpdate(&driver, TaskStatusStateEq(TASK_FINISHED)))
+    .WillOnce(FutureSatisfy(&taskFinished));
+
+  driver.acceptOffers(
+      {offer.id()},
+      {CREATE(persistentVolume),
+       LAUNCH({createTask(
+           offer.slave_id(),
+           persistentVolume,
+           createCommandInfo("touch " + path::join("volume", "file")))})});
+
+  AWAIT_READY(taskFinished);
+
+  // Shutdown the agent and unmount all CSI volumes to simulate a reboot.
+  slave->reset();
+
+  const string csiRootDir = slave::paths::getCsiRootDir(slaveFlags.work_dir);
+  ASSERT_SOME(fs::unmountAll(csiRootDir));
+
+  // Inject the boot IDs to simulate a reboot.
+  ASSERT_SOME(os::write(
+      slave::paths::getBootIdPath(
+          slave::paths::getMetaRootDir(slaveFlags.work_dir)),
+      "rebooted! ;)"));
+
+  Try<list<string>> volumePaths =
+    csi::paths::getVolumePaths(csiRootDir, "*", "*");
+  ASSERT_SOME(volumePaths);
+  ASSERT_FALSE(volumePaths->empty());
+
+  foreach (const string& path, volumePaths.get()) {
+    Try<csi::paths::VolumePath> volumePath =
+      csi::paths::parseVolumePath(csiRootDir, path);
+    ASSERT_SOME(volumePath);
+
+    const string volumeStatePath = csi::paths::getVolumeStatePath(
+        csiRootDir, volumePath->type, volumePath->name, volumePath->volumeId);
+
+    Result<csi::state::VolumeState> volumeState =
+      slave::state::read<csi::state::VolumeState>(volumeStatePath);
+
+    ASSERT_SOME(volumeState);
+
+    if (volumeState->state() == csi::state::VolumeState::PUBLISHED) {
+      volumeState->set_vol_ready_boot_id("rebooted! ;)");
+      volumeState->set_published_boot_id("rebooted! ;)");
+      ASSERT_SOME(slave::state::checkpoint(volumeStatePath, volumeState.get()));
+    }
+  }
+
+  Future<DispatchContext> nodePublishVolumeCall =
+    INTERCEPT_DISPATCH(_, &StorageLocalResourceProviderProcess::__call<
+        csi::v0::NODE_PUBLISH_VOLUME>);
+
+  slave = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  // NOTE: We need to resume the clock so that the resource provider can
+  // periodically check if the CSI endpoint socket has been created by
+  // the plugin container, which runs in another Linux process.
+  Clock::resume();
+
+  AWAIT_READY(nodePublishVolumeCall);
+  DispatchContext context = std::move(nodePublishVolumeCall.get());
+
+  Clock::pause();
+
+  process::internal::dispatch(
+      context.pid, std::move(context.function));
+
+  EXPECT_TRUE(
+      process::wait(context.pid, process::TEST_AWAIT_TIMEOUT));
 }
 
 
