@@ -23,9 +23,11 @@
 
 #include <mesos/authentication/secret_generator.hpp>
 
+#include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
+#include <stout/nothing.hpp>
 #include <stout/option.hpp>
 #include <stout/try.hpp>
 
@@ -62,6 +64,17 @@ public:
   process::Future<bool> add(const ResourceProviderInfo& info);
   process::Future<bool> update(const ResourceProviderInfo& info);
   process::Future<Nothing> remove(
+      const std::string& type,
+      const std::string& name);
+
+  // Returns a future that waits for the termination of the resource provider.
+  // The future could become one of the following results:
+  //   * `Some`: The resource provider has been terminated gracefully.
+  //   * `None`: The resource provider could not be found.
+  //   * Failed: The resource provider has been terminated with a fatal error.
+  //   * Abandoned: The resource provider existed at the time of query, but has
+  //     been removed before it was launched.
+  process::Future<Option<Nothing>> wait(
       const std::string& type,
       const std::string& name);
 

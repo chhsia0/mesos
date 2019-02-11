@@ -31,13 +31,10 @@
 #include <stout/foreach.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/json.hpp>
-#include <stout/nothing.hpp>
-#include <stout/option.hpp>
 #include <stout/os.hpp>
 #include <stout/path.hpp>
 #include <stout/protobuf.hpp>
 #include <stout/strings.hpp>
-#include <stout/try.hpp>
 
 #include "common/http.hpp"
 #include "common/validation.hpp"
@@ -59,11 +56,10 @@ using process::dispatch;
 using process::Failure;
 using process::Future;
 using process::Owned;
+using process::Promise;
 using process::Process;
 using process::ProcessBase;
 using process::spawn;
-using process::terminate;
-using process::wait;
 
 using process::http::authentication::Principal;
 
@@ -104,6 +100,7 @@ public:
   Future<bool> add(const ResourceProviderInfo& info);
   Future<bool> update(const ResourceProviderInfo& info);
   Future<Nothing> remove(const string& type, const string& name);
+  Future<Option<Nothing>> wait(const string& type, const string& name);
 
 protected:
   void initialize() override;
@@ -112,7 +109,10 @@ private:
   struct ProviderData
   {
     ProviderData(const string& _path, const ResourceProviderInfo& _info)
-      : path(_path), info(_info), version(id::UUID::random()) {}
+      : path(_path),
+        info(_info),
+        version(id::UUID::random()),
+        termination(new Promise<Nothing>()) {}
 
     const string path;
     ResourceProviderInfo info;
@@ -122,6 +122,11 @@ private:
     // provider instance that is in sync with the current config.
     id::UUID version;
     Owned<LocalResourceProvider> provider;
+
+    // The termination of the most recent resource provider instance. If the
+    // resource provider is being launched or running, the promise would be
+    // pending.
+    Owned<Promise<Nothing>> termination;
 
     // If set, it means that the resource provider is being removed, and the
     // future would be completed once the removal is done. Note that this object
@@ -358,6 +363,19 @@ Future<Nothing> LocalResourceProviderDaemonProcess::remove(
 }
 
 
+Future<Option<Nothing>> LocalResourceProviderDaemonProcess::wait(
+    const string& type,
+    const string& name)
+{
+  if (!providers[type].contains(name)) {
+    return None();
+  }
+
+  return providers[type].at(name).termination->future()
+    .then([] { return Option<Nothing>::some(Nothing()); });
+}
+
+
 void LocalResourceProviderDaemonProcess::initialize()
 {
   if (configDir.isNone()) {
@@ -482,9 +500,12 @@ Future<Nothing> LocalResourceProviderDaemonProcess::launch(
   ProviderData& data = providers[type].at(name);
   CHECK(data.removing.isNone());
 
-  // Destruct the previous resource provider (which will synchronously
-  // terminate its actor and driver) if there is one.
-  data.provider.reset();
+  if (data.provider.get() != nullptr) {
+    // Destruct the previous resource provider (which will synchronously
+    // terminate its actor and driver) and reset the termination promise.
+    data.provider.reset();
+    data.termination.reset(new Promise<Nothing>());
+  }
 
   return generateAuthToken(data.info)
     .then(defer(self(), &Self::_launch, type, name, data.version, lambda::_1));
@@ -526,6 +547,7 @@ Future<Nothing> LocalResourceProviderDaemonProcess::_launch(
   }
 
   data.authToken = authToken;
+  data.termination->associate(provider.get()->wait());
   data.provider = std::move(provider.get());
 
   return Nothing();
@@ -737,8 +759,8 @@ LocalResourceProviderDaemon::LocalResourceProviderDaemon(
 
 LocalResourceProviderDaemon::~LocalResourceProviderDaemon()
 {
-  terminate(process.get());
-  wait(process.get());
+  process::terminate(process.get());
+  process::wait(process.get());
 }
 
 
@@ -774,6 +796,17 @@ Future<Nothing> LocalResourceProviderDaemon::remove(
   return dispatch(
       process.get(),
       &LocalResourceProviderDaemonProcess::remove,
+      type,
+      name);
+}
+
+
+Future<Option<Nothing>> LocalResourceProviderDaemon::wait(
+    const string& type, const string& name)
+{
+  return dispatch(
+      process.get(),
+      &LocalResourceProviderDaemonProcess::wait,
       type,
       name);
 }
