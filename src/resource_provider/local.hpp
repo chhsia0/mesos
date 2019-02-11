@@ -17,13 +17,17 @@
 #ifndef __RESOURCE_PROVIDER_LOCAL_HPP__
 #define __RESOURCE_PROVIDER_LOCAL_HPP__
 
+#include <string>
+
 #include <mesos/mesos.hpp>
 
 #include <process/authenticator.hpp>
+#include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
 #include <stout/error.hpp>
+#include <stout/nothing.hpp>
 #include <stout/option.hpp>
 #include <stout/try.hpp>
 
@@ -51,6 +55,9 @@ public:
       const ResourceProviderInfo& info);
 
   virtual ~LocalResourceProvider() = default;
+
+  // Returns a future that waits for the termination of the resource provider.
+  virtual process::Future<Nothing> wait() = 0;
 };
 
 } // namespace internal {

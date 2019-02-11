@@ -41,6 +41,7 @@
 #include <process/collect.hpp>
 #include <process/defer.hpp>
 #include <process/delay.hpp>
+#include <process/dispatch.hpp>
 #include <process/future.hpp>
 #include <process/grpc.hpp>
 #include <process/id.hpp>
@@ -54,11 +55,11 @@
 
 #include <stout/bytes.hpp>
 #include <stout/duration.hpp>
+#include <stout/error.hpp>
 #include <stout/foreach.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/hashset.hpp>
 #include <stout/linkedhashmap.hpp>
-#include <stout/nothing.hpp>
 #include <stout/os.hpp>
 #include <stout/path.hpp>
 #include <stout/strings.hpp>
@@ -102,6 +103,7 @@ using process::Continue;
 using process::ControlFlow;
 using process::defer;
 using process::delay;
+using process::dispatch;
 using process::Failure;
 using process::Future;
 using process::loop;
@@ -255,13 +257,18 @@ public:
   StorageLocalResourceProviderProcess& operator=(
       const StorageLocalResourceProviderProcess& other) = delete;
 
+  Future<Nothing> wait();
+
   void connected();
   void disconnected();
   void received(const Event& event);
 
 private:
   void initialize() override;
-  void fatal();
+  void finalize() override;
+
+  template <typename... Args>
+  string fatal(const string& fmt, Args&&... args);
 
   Future<Nothing> recover();
 
@@ -406,6 +413,8 @@ private:
   Resources totalResources;
   id::UUID resourceVersion;
 
+  Promise<Nothing> terminated;
+
   // If pending, it means that the storage pools are being reconciled, and all
   // incoming operations that disallow reconciliation will be dropped.
   Future<Nothing> reconciled;
@@ -442,6 +451,12 @@ StorageLocalResourceProviderProcess::StorageLocalResourceProviderProcess(
 {
   diskProfileAdaptor = DiskProfileAdaptor::getAdaptor();
   CHECK_NOTNULL(diskProfileAdaptor.get());
+}
+
+
+Future<Nothing> StorageLocalResourceProviderProcess::wait()
+{
+  return terminated.future();
 }
 
 
@@ -514,10 +529,11 @@ void StorageLocalResourceProviderProcess::received(const Event& event)
 void StorageLocalResourceProviderProcess::initialize()
 {
   auto die = [=](const string& message) {
-    LOG(ERROR)
-      << "Failed to recover resource provider with type '" << info.type()
-      << "' and name '" << info.name() << "': " << message;
-    fatal();
+    LOG(ERROR) << fatal(
+        "Failed to recover resource provider with type '%s' and name '%s': %s",
+        info.type(),
+        info.name(),
+        message);
   };
 
   // NOTE: Most resource provider events rely on the plugins being
@@ -529,12 +545,30 @@ void StorageLocalResourceProviderProcess::initialize()
 }
 
 
-void StorageLocalResourceProviderProcess::fatal()
+void StorageLocalResourceProviderProcess::finalize()
+{
+  // NOTE: If the resource provider is terminated through `fatal`, the promise
+  // would have been failed, so we don't check its success here.
+  terminated.set(Nothing());
+}
+
+
+template <typename... Args>
+string StorageLocalResourceProviderProcess::fatal(
+    const string& fmt, Args&&... args)
 {
   // Force the disconnection early.
   driver.reset();
 
   process::terminate(self());
+
+  string message =
+    CHECK_NOTERROR(strings::format(fmt, std::forward<Args>(args)...));
+
+  // The promise must have not beet set before.
+  CHECK(terminated.fail(message));
+
+  return message;
 }
 
 
@@ -851,10 +885,10 @@ StorageLocalResourceProviderProcess::reconcileOperationStatuses()
                 slaveId);
 
           auto die = [=](const string& message) {
-            LOG(ERROR)
-              << "Failed to update status of operation (uuid: " << uuid << "): "
-              << message;
-            fatal();
+            LOG(ERROR) << fatal(
+                "Failed to update status of operation (uuid: %s): %s",
+                uuid,
+                message);
           };
 
           statusUpdateManager.update(std::move(update))
@@ -920,10 +954,10 @@ Future<Nothing> StorageLocalResourceProviderProcess::reconcileStoragePools()
   CHECK_PENDING(reconciled);
 
   auto die = [=](const string& message) {
-    LOG(ERROR)
-      << "Failed to reconcile storage pools for resource provider " << info.id()
-      << ": " << message;
-    fatal();
+    LOG(ERROR) << fatal(
+        "Failed to reconcile storage pools for resource provider %s: %s",
+        info.id(),
+        message);
   };
 
   return getStoragePools()
@@ -1219,10 +1253,8 @@ void StorageLocalResourceProviderProcess::subscribed(
   }
 
   auto die = [=](const string& message) {
-    LOG(ERROR)
-      << "Failed to reconcile resource provider " << info.id() << ": "
-      << message;
-    fatal();
+    LOG(ERROR) << fatal(
+        "Failed to reconcile resource provider %s: %s", info.id(), message);
   };
 
   // Reconcile resources after obtaining the resource provider ID and start
@@ -1611,10 +1643,10 @@ void StorageLocalResourceProviderProcess::dropOperation(
     checkpointResourceProviderState();
 
     auto die = [=](const string& message) {
-      LOG(ERROR)
-        << "Failed to update status of operation (uuid: " << operationUuid
-        << "): " << message;
-      fatal();
+      LOG(ERROR) << fatal(
+          "Failed to update status of operation (uuid: %s): %s",
+          operationUuid,
+          message);
     };
 
     statusUpdateManager.update(std::move(update))
@@ -1965,10 +1997,10 @@ Try<Nothing> StorageLocalResourceProviderProcess::updateOperationStatus(
         slaveId);
 
   auto die = [=](const string& message) {
-    LOG(ERROR)
-      << "Failed to update status of operation (uuid: " << operationUuid
-      << "): " << message;
-    fatal();
+    LOG(ERROR) << fatal(
+        "Failed to update status of operation (uuid: %s): %s",
+        operationUuid,
+        message);
   };
 
   statusUpdateManager.update(std::move(update))
@@ -2101,10 +2133,8 @@ void StorageLocalResourceProviderProcess::sendResourceProviderStateUpdate()
   // NOTE: We terminate the resource provider here if the state cannot be
   // updated, so that the state is in sync with the agent's view.
   auto die = [=](const ResourceProviderID& id, const string& message) {
-    LOG(ERROR)
-      << "Failed to update state for resource provider " << id << ": "
-      << message;
-    fatal();
+    LOG(ERROR) << fatal(
+        "Failed to update state for resource provider %s: %s", id, message);
   };
 
   driver->send(evolve(call))
@@ -2323,6 +2353,12 @@ StorageLocalResourceProvider::~StorageLocalResourceProvider()
 {
   process::terminate(process.get());
   process::wait(process.get());
+}
+
+
+Future<Nothing> StorageLocalResourceProvider::wait()
+{
+  return dispatch(process.get(), &StorageLocalResourceProviderProcess::wait);
 }
 
 } // namespace internal {

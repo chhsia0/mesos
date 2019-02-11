@@ -21,10 +21,13 @@
 
 #include <mesos/mesos.hpp>
 
+#include <process/authenticator.hpp>
+#include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
 #include <stout/error.hpp>
+#include <stout/nothing.hpp>
 #include <stout/option.hpp>
 #include <stout/try.hpp>
 
@@ -60,6 +63,8 @@ public:
 
   StorageLocalResourceProvider& operator=(
       const StorageLocalResourceProvider& other) = delete;
+
+  process::Future<Nothing> wait() override;
 
 private:
   explicit StorageLocalResourceProvider(
