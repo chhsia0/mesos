@@ -2641,107 +2641,99 @@ Future<string> StorageLocalResourceProviderProcess::createVolume(
 Future<bool> StorageLocalResourceProviderProcess::deleteVolume(
     const string& volumeId)
 {
-  const string volumePath = csi::paths::getVolumePath(
-      slave::paths::getCsiRootDir(workDir),
-      info.storage().plugin().type(),
-      info.storage().plugin().name(),
-      volumeId);
-
-  if (!volumes.contains(volumeId)) {
-    // The resource provider failed over after the last `deleteVolume` call, but
-    // before the operation status was checkpointed.
-    CHECK(!os::exists(volumePath));
-
-    return controllerCapabilities.createDeleteVolume;
-  }
-
-  VolumeData& volume = volumes.at(volumeId);
-
-  // NOTE: The volume must have been cleaned up before the `deleteVolume` call
-  // is made, so it is no longer required to publish the volume.
-  volume.state.set_node_publish_required(false);
-  checkpointVolumeState(volumeId);
-
   Future<Nothing> deleted = Nothing();
 
-  CHECK(VolumeState::State_IsValid(volume.state.state()));
+  if (volumes.contains(volumeId)) {
+    VolumeData& volume = volumes.at(volumeId);
 
-  switch (volume.state.state()) {
-    case VolumeState::PUBLISHED:
-    case VolumeState::NODE_PUBLISH:
-    case VolumeState::NODE_UNPUBLISH: {
-      deleted = deleted
-        .then(defer(self(), &Self::nodeUnpublish, volumeId));
+    // NOTE: The volume must have been cleaned up before the `deleteVolume` call
+    // is made, so it is no longer required to publish the volume.
+    volume.state.set_node_publish_required(false);
+    checkpointVolumeState(volumeId);
 
-      // NOTE: We continue to the next case to delete the volume in `VOL_READY`
-      // state once the above is done.
-    }
-    case VolumeState::VOL_READY:
-    case VolumeState::NODE_STAGE:
-    case VolumeState::NODE_UNSTAGE: {
-      deleted = deleted
-        .then(defer(self(), &Self::nodeUnstage, volumeId));
+    CHECK(VolumeState::State_IsValid(volume.state.state()));
 
-      // NOTE: We continue to the next case to delete the volume in `NODE_READY`
-      // state once the above is done.
-    }
-    case VolumeState::NODE_READY:
-    case VolumeState::CONTROLLER_PUBLISH:
-    case VolumeState::CONTROLLER_UNPUBLISH: {
-      deleted = deleted
-        .then(defer(self(), &Self::controllerUnpublish, volumeId));
+    switch (volume.state.state()) {
+      case VolumeState::PUBLISHED:
+      case VolumeState::NODE_PUBLISH:
+      case VolumeState::NODE_UNPUBLISH: {
+        deleted = deleted.then(defer(self(), &Self::nodeUnpublish, volumeId));
 
-      // NOTE: We continue to the next case to delete the volume in `CREATED`
-      // state once the above is done.
-    }
-    case VolumeState::CREATED: {
-      // We only delete the volume if the `CREATE_DELETE_VOLUME` capability is
-      // supported. Otherwise, we simply leave it as a preprovisioned volume.
-      if (controllerCapabilities.createDeleteVolume) {
-        deleted = deleted
-          .then(defer(self(), [this, volumeId] {
-            csi::v0::DeleteVolumeRequest request;
-            request.set_volume_id(volumeId);
+        // NOTE: We continue to the next case to delete the volume in
+        // `VOL_READY` state once the above is done.
+      }
+      case VolumeState::VOL_READY:
+      case VolumeState::NODE_STAGE:
+      case VolumeState::NODE_UNSTAGE: {
+        deleted = deleted.then(defer(self(), &Self::nodeUnstage, volumeId));
 
-            CHECK_SOME(controllerContainerId);
+        // NOTE: We continue to the next case to delete the volume in
+        // `NODE_READY` state once the above is done.
+      }
+      case VolumeState::NODE_READY:
+      case VolumeState::CONTROLLER_PUBLISH:
+      case VolumeState::CONTROLLER_UNPUBLISH: {
+        deleted =
+          deleted.then(defer(self(), &Self::controllerUnpublish, volumeId));
 
-            return call<csi::v0::DELETE_VOLUME>(
-                controllerContainerId.get(), std::move(request), true) // Retry.
-              .then([] { return Nothing(); });
-          }));
+        // NOTE: We continue to the next case to delete the volume in `CREATED`
+        // state once the above is done.
+      }
+      case VolumeState::CREATED: {
+        break;
+      }
+      case VolumeState::UNKNOWN: {
+        UNREACHABLE();
       }
 
-      break;
+      // NOTE: We avoid using a default clause for the following values in
+      // proto3's open enum to enable the compiler to detect missing enum cases
+      // for us. See:
+      // https://github.com/google/protobuf/issues/3917
+      case google::protobuf::kint32min:
+      case google::protobuf::kint32max: {
+        UNREACHABLE();
+      }
     }
-    case VolumeState::UNKNOWN: {
-      UNREACHABLE();
-    }
+  }
 
-    // NOTE: We avoid using a default clause for the following values in
-    // proto3's open enum to enable the compiler to detect missing enum cases
-    // for us. See:
-    // https://github.com/google/protobuf/issues/3917
-    case google::protobuf::kint32min:
-    case google::protobuf::kint32max: {
-      UNREACHABLE();
-    }
+  // We only delete the volume if the `CREATE_DELETE_VOLUME` capability is
+  // supported. Otherwise, we simply leave it as a preprovisioned volume.
+  if (controllerCapabilities.createDeleteVolume) {
+    deleted = deleted.then(defer(self(), [this, volumeId] {
+      csi::v0::DeleteVolumeRequest request;
+      request.set_volume_id(volumeId);
+
+      CHECK_SOME(controllerContainerId);
+
+      return call<csi::v0::DELETE_VOLUME>(
+          controllerContainerId.get(), std::move(request), true) // Retry.
+        .then([] { return Nothing(); });
+    }));
   }
 
   // NOTE: The last asynchronous continuation of `deleteVolume`, which is
-  // supposed to be run in the volume's sequence, would cause the sequence to be
-  // destructed, which would in turn discard the returned future. However, since
-  // the continuation would have already been run, the returned future will
-  // become ready, making the future returned by the sequence ready as well.
+  // supposed to be run in the volume's sequence if it exists, would cause the
+  // sequence to be destructed, which would in turn discard the returned future.
+  // However, since the continuation would have already been run, the returned
+  // future will become ready.
   return deleted
-    .then(defer(self(), [this, volumeId, volumePath] {
-      volumes.erase(volumeId);
+    .then(defer(self(), [this, volumeId] {
+      if (volumes.contains(volumeId)) {
+        volumes.erase(volumeId);
 
-      Try<Nothing> rmdir = os::rmdir(volumePath);
-      CHECK_SOME(rmdir)
-        << "Failed to remove checkpointed volume state at '" << volumePath
-        << "': " << rmdir.error();
+        const string volumePath = csi::paths::getVolumePath(
+            slave::paths::getCsiRootDir(workDir),
+            info.storage().plugin().type(),
+            info.storage().plugin().name(),
+            volumeId);
 
-      garbageCollectMountPath(volumeId);
+        Try<Nothing> rmdir = os::rmdir(volumePath);
+        CHECK_SOME(rmdir) << "Failed to remove checkpointed volume state at '"
+                          << volumePath << "': " << rmdir.error();
+
+        garbageCollectMountPath(volumeId);
+      }
 
       return controllerCapabilities.createDeleteVolume;
     }));
@@ -3200,15 +3192,20 @@ StorageLocalResourceProviderProcess::applyDestroyDisk(
 {
   CHECK(!Resources::isPersistentVolume(resource));
   CHECK(resource.disk().source().type() == Resource::DiskInfo::Source::MOUNT ||
-        resource.disk().source().type() == Resource::DiskInfo::Source::BLOCK);
+        resource.disk().source().type() == Resource::DiskInfo::Source::BLOCK ||
+        resource.disk().source().type() == Resource::DiskInfo::Source::RAW);
   CHECK(resource.disk().source().has_id());
 
   const string& volumeId = resource.disk().source().id();
-  CHECK(volumes.contains(volumeId));
+
+  Future<bool> deleted =
+    volumes.contains(volumeId)
+      ? volumes.at(volumeId).sequence->add(std::function<Future<bool>()>(
+            defer(self(), &Self::deleteVolume, volumeId)))
+      : deleteVolume(volumeId);
 
   // Sequentialize the deletion with other operation on the same volume.
-  return volumes.at(volumeId).sequence->add(std::function<Future<bool>()>(
-      defer(self(), &Self::deleteVolume, volumeId)))
+  return deleted
     .then(defer(self(), [=](bool deprovisioned) {
       Resource converted = resource;
       converted.mutable_disk()->mutable_source()->set_type(
@@ -3221,7 +3218,8 @@ StorageLocalResourceProviderProcess::applyDestroyDisk(
         converted.mutable_disk()->mutable_source()->clear_id();
         converted.mutable_disk()->mutable_source()->clear_metadata();
 
-        if (!profileInfos.contains(resource.disk().source().profile())) {
+        if (!resource.disk().source().has_profile() ||
+            !profileInfos.contains(resource.disk().source().profile())) {
           // The destroyed volume is converted into an empty resource to prevent
           // the freed disk from being sent out with a disappeared profile.
           converted.mutable_scalar()->set_value(0);
@@ -3234,10 +3232,9 @@ StorageLocalResourceProviderProcess::applyDestroyDisk(
           if (!reconciled.isPending()) {
             CHECK(info.has_id());
 
-            LOG(INFO)
-              << "Reconciling storage pools for resource provider " << info.id()
-              << " after the disk with profile '"
-              << resource.disk().source().profile() << "' has been freed";
+            LOG(INFO) << "Reconciling storage pools for resource provider "
+                      << info.id() << " after resource '" << resource
+                      << "' has been freed";
 
             // Reconcile the storage pools in `sequence` to wait for any other
             // pending operation that disallow reconciliation to finish, and set
