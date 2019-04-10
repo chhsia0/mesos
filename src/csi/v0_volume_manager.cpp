@@ -77,23 +77,15 @@ namespace v0 {
 VolumeManagerProcess::VolumeManagerProcess(
     const string& _rootDir,
     const CSIPluginInfo& _info,
-    const hashset<Service> _services,
     const Runtime& _runtime,
     ServiceManager* _serviceManager,
     Metrics* _metrics)
   : ProcessBase(process::ID::generate("csi-v0-volume-manager")),
     rootDir(_rootDir),
     info(_info),
-    services(_services),
     runtime(_runtime),
     serviceManager(_serviceManager),
-    metrics(_metrics)
-{
-  // This should have been validated in `VolumeManager::create`.
-  CHECK(!services.empty())
-    << "Must specify at least one service for CSI plugin type '" << info.type()
-    << "' and name '" << info.name() << "'";
-}
+    metrics(_metrics) {}
 
 
 Future<Nothing> VolumeManagerProcess::recover()
@@ -489,7 +481,7 @@ Future<Nothing> VolumeManagerProcess::unpublishVolume(const string& volumeId)
 
 template <typename Request, typename Response>
 Future<Response> VolumeManagerProcess::call(
-    const Service& service,
+    const Option<Service>& service,
     Future<RPCResult<Response>> (Client::*rpc)(Request),
     const Request& request,
     const bool retry) // Made immutable in the following mutable lambda.
@@ -597,18 +589,16 @@ Future<ControlFlow<Response>> VolumeManagerProcess::__call(
 
 Future<Nothing> VolumeManagerProcess::prepareServices()
 {
-  CHECK(!services.empty());
-
   // Get the plugin capabilities.
   return call(
-      *services.begin(),
+      None(),
       &Client::getPluginCapabilities,
       GetPluginCapabilitiesRequest())
     .then(process::defer(self(), [=](
         const GetPluginCapabilitiesResponse& response) -> Future<Nothing> {
       pluginCapabilities = response.capabilities();
 
-      if (services.contains(CONTROLLER_SERVICE) &&
+      if (serviceManager->getServices().contains(CONTROLLER_SERVICE) &&
           !pluginCapabilities->controllerService) {
         return Failure(
             "CONTROLLER_SERVICE plugin capability is not supported for CSI "
@@ -620,7 +610,7 @@ Future<Nothing> VolumeManagerProcess::prepareServices()
     // Check if all services have consistent plugin infos.
     .then(process::defer(self(), [this] {
       vector<Future<GetPluginInfoResponse>> futures;
-      foreach (const Service& service, services) {
+      foreach (const Service& service, serviceManager->getServices()) {
         futures.push_back(call(
             CONTROLLER_SERVICE, &Client::getPluginInfo, GetPluginInfoRequest())
           .onReady([service](const GetPluginInfoResponse& response) {
@@ -644,7 +634,7 @@ Future<Nothing> VolumeManagerProcess::prepareServices()
     }))
     // Get the controller capabilities.
     .then(process::defer(self(), [this]() -> Future<Nothing> {
-      if (!services.contains(CONTROLLER_SERVICE)) {
+      if (!serviceManager->getServices().contains(CONTROLLER_SERVICE)) {
         controllerCapabilities = ControllerCapabilities();
         return Nothing();
       }
@@ -661,7 +651,7 @@ Future<Nothing> VolumeManagerProcess::prepareServices()
     }))
     // Get the node capabilities and ID.
     .then(process::defer(self(), [this]() -> Future<Nothing> {
-      if (!services.contains(NODE_SERVICE)) {
+      if (!serviceManager->getServices().contains(NODE_SERVICE)) {
         nodeCapabilities = NodeCapabilities();
         return Nothing();
       }
@@ -1190,17 +1180,11 @@ void VolumeManagerProcess::garbageCollectMountPath(const string& volumeId)
 VolumeManager::VolumeManager(
     const string& rootDir,
     const CSIPluginInfo& info,
-    const hashset<Service>& services,
     const Runtime& runtime,
     ServiceManager* serviceManager,
     Metrics* metrics)
   : process(new VolumeManagerProcess(
-        rootDir,
-        info,
-        services,
-        runtime,
-        serviceManager,
-        metrics))
+        rootDir, info, runtime, serviceManager, metrics))
 {
   process::spawn(CHECK_NOTNULL(process.get()));
   recovered = process::dispatch(process.get(), &VolumeManagerProcess::recover);

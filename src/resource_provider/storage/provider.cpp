@@ -540,7 +540,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::recover()
 {
   CHECK_EQ(RECOVERING, state);
 
-  serviceManager.reset(new ServiceManager(
+  Try<Owned<ServiceManager>> serviceManager_ = ServiceManager::create(
       extractParentEndpoint(url),
       slave::paths::getCsiRootDir(workDir),
       info.storage().plugin(),
@@ -548,7 +548,16 @@ Future<Nothing> StorageLocalResourceProviderProcess::recover()
       getContainerPrefix(info),
       authToken,
       runtime,
-      &metrics));
+      &metrics);
+
+  if (serviceManager_.isError()) {
+    return Failure(
+        "Failed to create CSI service manager for resource provider with "
+        "type '" + info.type() + "' and name '" + info.name() + "': " +
+        serviceManager_.error());
+  }
+
+  serviceManager = std::move(serviceManager_.get());
 
   return serviceManager->recover()
     .then(defer(self(), [=] {
@@ -558,7 +567,6 @@ Future<Nothing> StorageLocalResourceProviderProcess::recover()
       Try<Owned<VolumeManager>> volumeManager_ = VolumeManager::create(
           slave::paths::getCsiRootDir(workDir),
           info.storage().plugin(),
-          {csi::CONTROLLER_SERVICE, csi::NODE_SERVICE},
           apiVersion,
           runtime,
           serviceManager.get(),

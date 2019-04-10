@@ -27,6 +27,7 @@
 #include <process/owned.hpp>
 
 #include <stout/hashset.hpp>
+#include <stout/none.hpp>
 #include <stout/nothing.hpp>
 #include <stout/option.hpp>
 
@@ -51,7 +52,7 @@ class ServiceManagerProcess;
 class ServiceManager
 {
 public:
-  ServiceManager(
+  static Try<process::Owned<ServiceManager>> create(
       const process::http::URL& agentUrl,
       const std::string& rootDir,
       const CSIPluginInfo& info,
@@ -72,10 +73,29 @@ public:
 
   process::Future<Nothing> recover();
 
-  process::Future<std::string> getServiceEndpoint(const Service& service);
+  const hashset<Service>& getServices() const;
+
+  // Returns the URI to a Unix domain socket serving the specified service. If
+  // no service is specified, the URI serving an arbitrary service is returned,
+  // which is useful to make CSI `Identity` service calls.
+  process::Future<std::string> getServiceEndpoint(
+      const Option<Service>& service = None());
+
   process::Future<std::string> getApiVersion();
 
 private:
+  ServiceManager(
+      const process::http::URL& agentUrl,
+      const std::string& rootDir,
+      const CSIPluginInfo& info,
+      const hashset<Service>& _services,
+      const std::string& containerPrefix,
+      const Option<std::string>& authToken,
+      const process::grpc::client::Runtime& runtime,
+      Metrics* metrics);
+
+  const hashset<Service> services;
+
   process::Owned<ServiceManagerProcess> process;
   process::Future<Nothing> recovered;
 };

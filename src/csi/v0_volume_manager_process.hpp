@@ -72,7 +72,6 @@ public:
   explicit VolumeManagerProcess(
       const std::string& _rootDir,
       const CSIPluginInfo& _info,
-      const hashset<Service> _services,
       const process::grpc::client::Runtime& _runtime,
       ServiceManager* _serviceManager,
       Metrics* _metrics);
@@ -118,7 +117,7 @@ public:
   // `CREATE_DISK` or `DESTROY_DISK` operations.
   template <typename Request, typename Response>
   process::Future<Response> call(
-      const Service& service,
+      const Option<Service>& service,
       process::Future<RPCResult<Response>> (Client::*rpc)(Request),
       const Request& request,
       bool retry = false);
@@ -182,7 +181,6 @@ private:
 
   const std::string rootDir;
   const CSIPluginInfo info;
-  const hashset<Service> services;
 
   process::grpc::client::Runtime runtime;
   ServiceManager* serviceManager;
