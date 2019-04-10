@@ -39,24 +39,17 @@ namespace csi {
 Try<Owned<VolumeManager>> VolumeManager::create(
     const string& rootDir,
     const CSIPluginInfo& info,
-    const hashset<Service>& services,
     const string& apiVersion,
     const Runtime& runtime,
     ServiceManager* serviceManager,
     Metrics* metrics)
 {
-  if (services.empty()) {
-    return Error(
-        "Must specify at least one service for CSI plugin type '" +
-        info.type() + "' and name '" + info.name() + "'");
-  }
-
   if (apiVersion == v0::API_VERSION) {
     return Try<Owned<VolumeManager>>(new v0::VolumeManager(
-        rootDir, info, services, runtime, serviceManager, metrics));
+        rootDir, info, runtime, serviceManager, metrics));
   } else if (apiVersion == v1::API_VERSION) {
     return Try<Owned<VolumeManager>>(new v1::VolumeManager(
-        rootDir, info, services, runtime, serviceManager, metrics));
+        rootDir, info, runtime, serviceManager, metrics));
   }
 
   return Error("Unsupported CSI API version: " + apiVersion);

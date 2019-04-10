@@ -59,7 +59,6 @@ public:
   static Try<process::Owned<VolumeManager>> create(
       const std::string& rootDir,
       const CSIPluginInfo& info,
-      const hashset<Service>& services,
       const std::string& apiVersion,
       const process::grpc::client::Runtime& runtime,
       ServiceManager* serviceManager,

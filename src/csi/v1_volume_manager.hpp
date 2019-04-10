@@ -55,7 +55,6 @@ public:
   VolumeManager(
       const std::string& rootDir,
       const CSIPluginInfo& info,
-      const hashset<Service>& services,
       const process::grpc::client::Runtime& runtime,
       ServiceManager* serviceManager,
       Metrics* metrics);

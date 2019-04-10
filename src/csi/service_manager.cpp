@@ -38,6 +38,7 @@
 
 #include <stout/check.hpp>
 #include <stout/duration.hpp>
+#include <stout/error.hpp>
 #include <stout/foreach.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/os.hpp>
@@ -139,7 +140,7 @@ public:
 
   Future<Nothing> recover();
 
-  Future<string> getServiceEndpoint(const Service& service);
+  Future<string> getServiceEndpoint(const Option<Service>& service = None());
   Future<string> getApiVersion();
 
 private:
@@ -215,10 +216,10 @@ ServiceManagerProcess::ServiceManagerProcess(
     // Each service is served by the first container providing the service. See
     // `CSIPluginInfo` in `mesos.proto` for details.
     foreach (const CSIPluginContainerInfo& container, info.containers()) {
-      if (container.services().end() != std::find(
+      if (std::any_of(
               container.services().begin(),
               container.services().end(),
-              service)) {
+              [&](int _service) { return _service == service; })) {
         serviceContainers[service] =
           getContainerId(info, containerPrefix, container);
 
@@ -226,6 +227,7 @@ ServiceManagerProcess::ServiceManagerProcess(
       }
     }
 
+    // This should have been validated in `ServiceManager::create`.
     CHECK(serviceContainers.contains(service))
       << service << " not found for CSI plugin type '" << info.type()
       << "' and name '" << info.name() << "'";
@@ -344,15 +346,25 @@ Future<Nothing> ServiceManagerProcess::recover()
 }
 
 
-Future<string> ServiceManagerProcess::getServiceEndpoint(const Service& service)
+Future<string> ServiceManagerProcess::getServiceEndpoint(
+    const Option<Service>& service)
 {
-  if (!serviceContainers.contains(service)) {
-    return Failure(
-        stringify(service) + " not found for CSI plugin type '" + info.type() +
-        "' and name '" + info.name() + "'");
+  if (service.isNone()) {
+    // This should have been validated in `ServiceManager::create`.
+    CHECK(!serviceContainers.empty())
+      << "Must specify at least one service for CSI plugin type '"
+      << info.type() << "' and name '" << info.name() << "'";
+
+    return getEndpoint(serviceContainers.begin()->second);
   }
 
-  return getEndpoint(serviceContainers.at(service));
+  if (!serviceContainers.contains(service.get())) {
+    return Failure(
+        stringify(service.get()) + " not found for CSI plugin type '" +
+        info.type() + "' and name '" + info.name() + "'");
+  }
+
+  return getEndpoint(serviceContainers.at(service.get()));
 }
 
 
@@ -363,9 +375,8 @@ Future<string> ServiceManagerProcess::getApiVersion()
   }
 
   // Ensure that the plugin has been probed (which does the API version
-  // detection) through `getEndpoint` before returning the API version.
-  CHECK(!serviceContainers.empty());
-  return getEndpoint(serviceContainers.begin()->second)
+  // detection) through `getServiceEndpoint` before returning the API version.
+  return getServiceEndpoint()
     .then(process::defer(self(), [=] { return CHECK_NOTNONE(apiVersion); }));
 }
 
@@ -766,7 +777,7 @@ Future<string> ServiceManagerProcess::getEndpoint(
 }
 
 
-ServiceManager::ServiceManager(
+Try<Owned<ServiceManager>> ServiceManager::create(
     const http::URL& agentUrl,
     const string& rootDir,
     const CSIPluginInfo& info,
@@ -775,7 +786,52 @@ ServiceManager::ServiceManager(
     const Option<string>& authToken,
     const Runtime& runtime,
     Metrics* metrics)
-  : process(new ServiceManagerProcess(
+{
+  if (services.empty()) {
+    return Error(
+        "Must specify at least one service for CSI plugin type '" +
+        info.type() + "' and name '" + info.name() + "'");
+  }
+
+  foreach (const Service& service, services) {
+    auto hasService = [&](const CSIPluginContainerInfo& container) {
+      return std::any_of(
+          container.services().begin(),
+          container.services().end(),
+          [&](int _service) { return _service == service; });
+    };
+
+    if (std::none_of(
+            info.containers().begin(), info.containers().end(), hasService)) {
+      return Error(
+          stringify(service) + " not found for CSI plugin type '" +
+          info.type() + "' and name '" + info.name() + "'");
+    }
+  }
+
+  return Try<Owned<ServiceManager>>(new ServiceManager(
+      agentUrl,
+      rootDir,
+      info,
+      services,
+      containerPrefix,
+      authToken,
+      runtime,
+      metrics));
+}
+
+
+ServiceManager::ServiceManager(
+    const http::URL& agentUrl,
+    const string& rootDir,
+    const CSIPluginInfo& info,
+    const hashset<Service>& _services,
+    const string& containerPrefix,
+    const Option<string>& authToken,
+    const Runtime& runtime,
+    Metrics* metrics)
+  : services(_services),
+    process(new ServiceManagerProcess(
         agentUrl,
         rootDir,
         info,
@@ -792,7 +848,6 @@ ServiceManager::ServiceManager(
 
 ServiceManager::~ServiceManager()
 {
-  recovered.discard();
   process::terminate(process.get());
   process::wait(process.get());
 }
@@ -804,7 +859,14 @@ Future<Nothing> ServiceManager::recover()
 }
 
 
-Future<string> ServiceManager::getServiceEndpoint(const Service& service)
+const hashset<Service>& ServiceManager::getServices() const
+{
+  return services;
+}
+
+
+Future<string> ServiceManager::getServiceEndpoint(
+    const Option<Service>& service)
 {
   return recovered
     .then(process::defer(
